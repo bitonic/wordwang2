@@ -17,11 +17,12 @@ module WordWang.Objects
 
     , CandidateBody
     , Candidate(..)
-    , candidateText
+    , candidateBody
     , candidateUser
     , candidateVotes
 
     , StoryId
+    , Block
     , Story(..)
     , storyId
     , storyUsers
@@ -62,15 +63,16 @@ data User = User
 type CandidateBody = Text
 data Candidate = Candidate
     { _candidateUser  :: Id
-    , _candidateText  :: Text
+    , _candidateBody  :: CandidateBody
     , _candidateVotes :: HashSet UserId
     }
 
 type StoryId = Id
+type Block = Text
 data Story = Story
     { _storyId         :: StoryId
     , _storyUsers      :: HashMap UserId User
-    , _storySoFar      :: [Text]
+    , _storySoFar      :: [Block]
     , _storyCandidates :: HashMap Id Candidate
     }
 
