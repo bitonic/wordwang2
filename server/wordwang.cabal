@@ -1,0 +1,28 @@
+name:                wordwang
+version:             0.0.0
+synopsis:            IT'S WORDWANG!!!
+license:             GPL
+author:              Francesco Mazzoli
+maintainer:          f@mazzo.li
+category:            Silly
+build-type:          Simple
+cabal-version:       >= 1.8
+
+library
+  hs-source-dirs:    src
+
+  exposed-modules:   WordWang
+
+  build-depends:     base >= 4 && < 5
+                   , websockets >= 0.7
+                   , snap >= 0.13
+
+executable wordwang-server
+  main-is:           wordwang-server.hs
+  
+  ghc-options:       -threaded -Wall -rtsopts -with-rtsopts=-T -O2
+
+  ghc-prof-options:  -auto-all
+
+  build-depends:     base >= 4 && < 5
+                   , wordwang

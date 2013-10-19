@@ -1,0 +1,1 @@
+module WordWang where
