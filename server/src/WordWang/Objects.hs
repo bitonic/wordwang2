@@ -3,45 +3,75 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
 module WordWang.Objects
-    ( Id
+    ( Text
+
+    , Id
+
+    , UserId
+    , UserNick
+    , UserSecret
     , User(..)
+    , userId
+    , userNick
+    , userSecret
+
+    , CandidateBody
     , Candidate(..)
+    , candidateText
+    , candidateUser
+    , candidateVotes
+
+    , StoryId
     , Story(..)
+    , storyId
+    , storyUsers
+    , storyCandidates
+    , storySoFar
     ) where
 
 import           Data.Functor ((<$>))
 import           Data.Traversable (traverse)
 
+import           Data.ByteString (ByteString)
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
+import           Data.HashSet (HashSet)
 import           Data.Hashable (Hashable(hashWithSalt))
 import           Data.Text (Text)
 import qualified Data.Text.Encoding as T
 
-import qualified Data.UUID as UUID
+import           Control.Lens (makeLenses)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson
+import qualified Data.UUID as UUID
 
 import           WordWang.Utils
 
 newtype Id = Id { unId :: UUID.UUID }
     deriving (Eq, Ord, Show, Read)
 
+type UserId = Id
+type UserSecret = ByteString
+type UserNick = Text
 data User = User
-    { userID   :: Id
-    , userNick :: Text
+    { _userId     :: UserId
+    , _userNick   :: UserNick
+    , _userSecret :: UserSecret
     }
 
+type CandidateBody = Text
 data Candidate = Candidate
-    { candidateUser  :: Id
-    , candidateText  :: Text
-    , candidateVotes :: Int
+    { _candidateUser  :: Id
+    , _candidateText  :: Text
+    , _candidateVotes :: HashSet UserId
     }
 
+type StoryId = Id
 data Story = Story
-    { storySoFar      :: [Text]
-    , storyCandidates :: HashMap Id Candidate
-    , storyUsers      :: HashMap Id User
+    { _storyId         :: StoryId
+    , _storyUsers      :: HashMap UserId User
+    , _storySoFar      :: [Text]
+    , _storyCandidates :: HashMap Id Candidate
     }
 
 ----------------------------------------------------------------------
@@ -73,6 +103,12 @@ instance Aeson.FromJSON v => Aeson.FromJSON (HashMap Id v) where
         f = traverse (\(k, v) -> (, v) . Id <$> UUID.fromASCIIBytes k)
           . HashMap.toList
 
-Aeson.deriveJSON (wwJSON $ delPrefix "user")      ''User
-Aeson.deriveJSON (wwJSON $ delPrefix "candidate") ''Candidate
-Aeson.deriveJSON (wwJSON $ delPrefix "story")     ''Story
+Aeson.deriveJSON (wwJSON $ delPrefix "_user")      ''User
+Aeson.deriveJSON (wwJSON $ delPrefix "_candidate") ''Candidate
+Aeson.deriveJSON (wwJSON $ delPrefix "_story")     ''Story
+
+----------------------------------------------------------------------
+
+makeLenses ''User
+makeLenses ''Candidate
+makeLenses ''Story
