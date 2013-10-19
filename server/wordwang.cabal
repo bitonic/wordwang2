@@ -14,6 +14,7 @@ library
   exposed-modules:   WordWang
                    , WordWang.Objects
                    , WordWang.Messages
+                   , WordWang.Monad
 
   other-modules:     WordWang.Utils
 
@@ -28,6 +29,8 @@ library
                    , unordered-containers >= 0.2
                    , hashable >= 1.1
                    , lens >= 3.10
+                   , transformers >= 0.3
+                   , either >= 3.4
 
 executable wordwang-server
   main-is:           wordwang-server.hs

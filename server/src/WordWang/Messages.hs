@@ -11,6 +11,9 @@ module WordWang.Messages
     , clientAuthSecret
 
     , ClientMsgBody(..)
+
+    , ServerError
+    , ServerMsg(..)
     ) where
 
 import           Control.Lens (makeLenses)
@@ -38,13 +41,15 @@ data ClientMsgBody
     | CMVote UserId
     | CMBlock Block
 
+type ServerError = Text
 data ServerMsg
-    = SMOK Story
+    = SMOk Story
+    | SMError ServerError
 
 ----------------------------------------------------------------------
 
-Aeson.deriveJSON (wwJSON $ delPrefix "_clientMsg")    ''ClientMsg
-Aeson.deriveJSON (wwJSON $ delPrefix "_clientAuth")   ''ClientAuth
+Aeson.deriveJSON (wwJSON $ delPrefix "_clientMsg")  ''ClientMsg
+Aeson.deriveJSON (wwJSON $ delPrefix "_clientAuth") ''ClientAuth
 
 instance Aeson.ToJSON ClientMsgBody where
     toJSON CMJoin = tagObj "join" []
@@ -61,10 +66,14 @@ instance Aeson.FromJSON ClientMsgBody where
         ]
 
 instance Aeson.ToJSON ServerMsg where
-    toJSON (SMOK story) = tagObj "ok" ["story" .= Aeson.toJSON story]
+    toJSON (SMOk story)  = tagObj "ok" ["story" .= Aeson.toJSON story]
+    toJSON (SMError err) = tagObj "error" ["message" .= Aeson.toJSON err]
 
 instance Aeson.FromJSON ServerMsg where
-    parseJSON = parseTagged [ ("ok", parseUnary SMOK "story") ]
+    parseJSON = parseTagged
+        [ ("ok",    parseUnary SMOk    "story")
+        , ("error", parseUnary SMError "message")
+        ]
 
 ----------------------------------------------------------------------
 
