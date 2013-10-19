@@ -1,19 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 module WordWang.Messages
-    ( ClientMsg(..)
-    , clientMsgStory
-    , clientMsgAuth
-    , clientMsgBody
+    ( Req(..)
+    , reqStory
+    , reqAuth
+    , reqBody
 
-    , ClientAuth(..)
-    , clientAuthId
-    , clientAuthSecret
+    , ReqAuth(..)
+    , reqAuthId
+    , reqAuthSecret
 
-    , ClientMsgBody(..)
+    , ReqBody(..)
 
-    , ServerError
-    , ServerMsg(..)
+    , RespError
+    , Resp(..)
     ) where
 
 import           Control.Lens (makeLenses)
@@ -24,58 +24,58 @@ import qualified Data.Aeson.TH as Aeson
 import           WordWang.Objects
 import           WordWang.Utils
 
-data ClientMsg = ClientMsg
-    { _clientMsgStory :: StoryId
-    , _clientMsgAuth  :: Maybe ClientAuth
-    , _clientMsgBody  :: ClientMsgBody
+data Req = Req
+    { _reqStory :: StoryId
+    , _reqAuth  :: Maybe ReqAuth
+    , _reqBody  :: ReqBody
     }
 
-data ClientAuth = ClientAuth
-    { _clientAuthId     :: UserId
-    , _clientAuthSecret :: UserSecret
+data ReqAuth = ReqAuth
+    { _reqAuthId     :: UserId
+    , _reqAuthSecret :: UserSecret
     }
 
-data ClientMsgBody
-    = CMJoin
-    | CMCandidate CandidateBody
-    | CMVote UserId
-    | CMBlock Block
+data ReqBody
+    = ReqJoin
+    | ReqCandidate CandidateBody
+    | ReqVote UserId
+    | ReqBlock Block
 
-type ServerError = Text
-data ServerMsg
-    = SMOk Story
-    | SMError ServerError
+type RespError = Text
+data Resp
+    = RespOk Story
+    | RespError RespError
 
 ----------------------------------------------------------------------
 
-Aeson.deriveJSON (wwJSON $ delPrefix "_clientMsg")  ''ClientMsg
-Aeson.deriveJSON (wwJSON $ delPrefix "_clientAuth") ''ClientAuth
+Aeson.deriveJSON (wwJSON $ delPrefix "_req")     ''Req
+Aeson.deriveJSON (wwJSON $ delPrefix "_reqAuth") ''ReqAuth
 
-instance Aeson.ToJSON ClientMsgBody where
-    toJSON CMJoin = tagObj "join" []
-    toJSON (CMCandidate body) = tagObj "candidate" ["body" .= body]
-    toJSON (CMVote uid) = tagObj "vote" ["userId" .= uid]
-    toJSON (CMBlock block) = tagObj "block" ["body" .= block]
+instance Aeson.ToJSON ReqBody where
+    toJSON ReqJoin = tagObj "join" []
+    toJSON (ReqCandidate body) = tagObj "candidate" ["body" .= body]
+    toJSON (ReqVote uid) = tagObj "vote" ["userId" .= uid]
+    toJSON (ReqBlock block) = tagObj "block" ["body" .= block]
 
-instance Aeson.FromJSON ClientMsgBody where
+instance Aeson.FromJSON ReqBody where
     parseJSON = parseTagged
-        [ ("join",      parseNullary CMJoin)
-        , ("candidate", parseUnary   CMCandidate "body")
-        , ("vote",      parseUnary   CMVote      "userId")
-        , ("block",     parseUnary   CMBlock     "body")
+        [ ("join",      parseNullary ReqJoin)
+        , ("candidate", parseUnary   ReqCandidate "body")
+        , ("vote",      parseUnary   ReqVote      "userId")
+        , ("block",     parseUnary   ReqBlock     "body")
         ]
 
-instance Aeson.ToJSON ServerMsg where
-    toJSON (SMOk story)  = tagObj "ok" ["story" .= Aeson.toJSON story]
-    toJSON (SMError err) = tagObj "error" ["message" .= Aeson.toJSON err]
+instance Aeson.ToJSON Resp where
+    toJSON (RespOk story)  = tagObj "ok" ["story" .= Aeson.toJSON story]
+    toJSON (RespError err) = tagObj "error" ["message" .= Aeson.toJSON err]
 
-instance Aeson.FromJSON ServerMsg where
+instance Aeson.FromJSON Resp where
     parseJSON = parseTagged
-        [ ("ok",    parseUnary SMOk    "story")
-        , ("error", parseUnary SMError "message")
+        [ ("ok",    parseUnary RespOk    "story")
+        , ("error", parseUnary RespError "message")
         ]
 
 ----------------------------------------------------------------------
 
-makeLenses ''ClientMsg
-makeLenses ''ClientAuth
+makeLenses ''Req
+makeLenses ''ReqAuth

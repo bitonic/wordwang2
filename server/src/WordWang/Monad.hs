@@ -10,14 +10,14 @@ import           Control.Monad.Trans.State (StateT, runStateT)
 import           WordWang.Messages
 import           WordWang.Objects
 
-newtype WW a = WW {unWW :: EitherT ServerMsg (StateT Story IO) a}
+newtype WW a = WW {unWW :: EitherT Resp (StateT Story IO) a}
 
-runWW :: Story -> (ServerMsg -> StateT Story IO a) -> WW a -> IO (a, Story)
+runWW :: Story -> (Resp -> StateT Story IO a) -> WW a -> IO (a, Story)
 runWW story handle ww = flip runStateT story $ do
     res <- runEitherT (unWW ww)
     case res of
         Left err -> handle err
         Right x  -> return x
 
-terminate :: ServerMsg -> WW a
+terminate :: Resp -> WW a
 terminate = WW . EitherT . return . Left

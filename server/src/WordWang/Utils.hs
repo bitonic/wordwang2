@@ -22,18 +22,18 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import           Data.String.Combinators (quotes)
 
-delPrefix :: String -> (String -> String)
-delPrefix prefix = \fieldName ->
+delPrefix :: String -> String -> String
+delPrefix prefix fieldName =
     case stripPrefix prefix fieldName of
-      Just ccs@(c:cs)
-          | isUpper c -> toLower c : cs
-          | null prefix -> ccs
-          | otherwise -> error $ "The field name after the prefix " ++
-                                 "must be written in CamelCase"
-      Just [] -> error $ "The field name after the prefix may not be empty"
-      Nothing -> error $ "The field name " ++ quotes fieldName ++
-                         " does not begin with the required prefix " ++
-                         quotes prefix
+        Just ccs@(c:cs)
+            | isUpper c -> toLower c : cs
+            | null prefix -> ccs
+            | otherwise -> error $ "The field name after the prefix " ++
+                                   "must be written in CamelCase"
+        Just [] -> error $ "The field name after the prefix may not be empty"
+        Nothing -> error $ "The field name " ++ quotes fieldName ++
+                           " does not begin with the required prefix " ++
+                           quotes prefix
 
 wwJSON :: (String -> String) -> Aeson.Options
 wwJSON f = Aeson.defaultOptions{Aeson.fieldLabelModifier = f}
