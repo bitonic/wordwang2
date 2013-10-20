@@ -1,19 +1,29 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module WordWang.Monad
     ( WW
     , runWW
     , terminate
     ) where
 
+import           Control.Applicative (Applicative)
+
+import           Control.Monad.Reader (ReaderT(..), MonadReader)
+import           Control.Monad.State (StateT(..), MonadState)
+import           Control.Monad.Trans (MonadIO)
 import           Control.Monad.Trans.Either (EitherT(..))
-import           Control.Monad.Trans.State (StateT, runStateT)
 
 import           WordWang.Messages
 import           WordWang.Objects
 
-newtype WW a = WW {unWW :: EitherT Resp (StateT Story IO) a}
+newtype WW a = WW
+    {unWW :: EitherT Resp (ReaderT Req (StateT Story IO)) a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader Req, MonadState Story)
 
-runWW :: Story -> (Resp -> StateT Story IO a) -> WW a -> IO (a, Story)
-runWW story handle ww = flip runStateT story $ do
+runWW :: Req -> Story
+      -> (Resp -> ReaderT Req (StateT Story IO) a)
+      -> WW a
+      -> IO (a, Story)
+runWW req story handle ww = flip runStateT story $ flip runReaderT req $ do
     res <- runEitherT (unWW ww)
     case res of
         Left err -> handle err

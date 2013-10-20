@@ -12,9 +12,9 @@ library
   hs-source-dirs:    src
 
   exposed-modules:   WordWang
-                   , WordWang.Objects
                    , WordWang.Messages
                    , WordWang.Monad
+                   , WordWang.Objects
 
   other-modules:     WordWang.Utils
 
@@ -29,7 +29,7 @@ library
                    , unordered-containers >= 0.2
                    , hashable >= 1.1
                    , lens >= 3.10
-                   , transformers >= 0.3
+                   , mtl >= 2.1
                    , either >= 3.4
 
 executable wordwang-server
