@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternGuards #-}
 module WordWang.Utils
     ( delPrefix
     , wwJSON
