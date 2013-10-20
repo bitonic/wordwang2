@@ -2,6 +2,7 @@ module WordWang.Objects
     ( Text
 
     , Id
+    , newId
 
     , UserId
     , UserNick
@@ -41,11 +42,15 @@ import           Control.Lens (makeLenses)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson
 import qualified Data.UUID as UUID
+import qualified Data.UUID.V4 as UUID
 
 import           WordWang.Utils
 
 newtype Id = Id { unId :: UUID.UUID }
     deriving (Eq, Ord, Show, Read)
+
+newId :: IO Id
+newId = Id <$> UUID.nextRandom
 
 type UserId = Id
 type UserSecret = ByteString
