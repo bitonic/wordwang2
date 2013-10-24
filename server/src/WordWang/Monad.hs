@@ -1,29 +1,41 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module WordWang.Monad
-    ( WW
+    ( WWState
+    , wwConnection
+    , wwStory
+    , WW
     , runWW
     , terminate
     ) where
 
 import           Control.Applicative (Applicative)
+import           Control.Concurrent (MVar)
 
 import           Control.Monad.Reader (ReaderT(..), MonadReader)
-import           Control.Monad.State (StateT(..), MonadState)
 import           Control.Monad.Trans (MonadIO)
 import           Control.Monad.Trans.Either (EitherT(..))
+
+import           Control.Lens (makeLenses)
+import qualified Network.WebSockets as WS
 
 import           WordWang.Messages
 import           WordWang.Objects
 
-newtype WW a = WW
-    {unWW :: EitherT Resp (ReaderT Req (StateT Story IO)) a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader Req, MonadState Story)
+data WWState = WWState
+    { _wwConnection :: WS.Connection
+    , _wwStory      :: MVar Story
+    }
 
-runWW :: Req -> Story
-      -> (Resp -> ReaderT Req (StateT Story IO) a)
+makeLenses ''WWState
+
+newtype WW a = WW {unWW :: EitherT Resp (ReaderT WWState IO) a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader WWState)
+
+runWW :: WWState
+      -> (Resp -> ReaderT WWState IO a)
       -> WW a
-      -> IO (a, Story)
-runWW req story handle ww = flip runStateT story $ flip runReaderT req $ do
+      -> IO a
+runWW state handle ww = flip runReaderT state $ do
     res <- runEitherT (unWW ww)
     case res of
         Left err -> handle err
