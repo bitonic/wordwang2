@@ -15,6 +15,7 @@ import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import           Data.Hashable (Hashable)
 import           Data.Text (Text)
+import qualified Data.Text as T
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
@@ -48,7 +49,16 @@ tagObj tag obj = Aeson.object $ (("tag" Aeson..= tag) : obj)
 
 parseTagged :: [(Text, Aeson.Object -> Aeson.Parser a)]
             -> Aeson.Value -> Aeson.Parser a
-parseTagged = undefined
+parseTagged table x = do
+    obj :: Aeson.Object <- Aeson.parseJSON x
+    case HashMap.lookup "tag" obj of
+        Nothing -> fail "parseTagged: no `tag'"
+        Just (Aeson.String tag) ->
+            case lookup tag table of
+                Just p -> p (HashMap.delete "tag" obj)
+                Nothing ->
+                    fail ("parseTagged: `" ++ T.unpack tag ++ "' not present")
+        Just _ -> fail "parseTagged: expected object"
 
 parseNullary :: a -> Aeson.Object -> Aeson.Parser a
 parseNullary x obj | HashMap.null obj = return x
