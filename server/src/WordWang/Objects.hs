@@ -9,7 +9,6 @@ module WordWang.Objects
     , UserSecret
     , User(..)
     , userId
-    , userNick
     , userSecret
 
     , CandidateBody
@@ -57,13 +56,12 @@ type UserSecret = ByteString
 type UserNick = Text
 data User = User
     { _userId     :: UserId
-    , _userNick   :: UserNick
     , _userSecret :: UserSecret
     }
 
 type CandidateBody = Text
 data Candidate = Candidate
-    { _candidateUser  :: Id
+    { _candidateUser  :: UserId
     , _candidateBody  :: CandidateBody
     , _candidateVotes :: HashSet UserId
     }
@@ -74,7 +72,7 @@ data Story = Story
     { _storyId         :: StoryId
     , _storyUsers      :: HashMap UserId User
     , _storySoFar      :: [Block]
-    , _storyCandidates :: HashMap Id Candidate
+    , _storyCandidates :: HashMap UserId Candidate
     }
 
 ----------------------------------------------------------------------
