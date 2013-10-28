@@ -1,7 +1,13 @@
 module WordWang
-    ( module WordWang.Objects
-    , module WordWang.Messages
+    ( module WordWang.Messages
+    , module WordWang.Monad
+    , module WordWang.Objects
+    , wordwang
     ) where
 
-import           WordWang.Objects
 import           WordWang.Messages
+import           WordWang.Monad
+import           WordWang.Objects
+
+wordwang :: Monad m => WWT m ()
+wordwang = undefined

@@ -28,7 +28,7 @@ import           WordWang.Objects
 import           WordWang.Utils
 
 data Req = Req
-    { _reqStory :: Maybe ReqStory
+    { _reqStory :: Maybe StoryId
     , _reqAuth  :: Maybe ReqAuth
     , _reqBody  :: ReqBody
     }

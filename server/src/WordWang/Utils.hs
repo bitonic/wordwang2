@@ -6,6 +6,7 @@ module WordWang.Utils
     , parseTagged
     , parseNullary
     , parseUnary
+    , sendJSON
     ) where
 
 import           Data.Char (isUpper, toLower)
@@ -20,6 +21,7 @@ import qualified Data.Text as T
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import           Data.String.Combinators (quotes)
+import qualified Network.WebSockets as WS
 
 delPrefix :: String -> String -> String
 delPrefix prefix fieldName =
@@ -71,3 +73,6 @@ parseUnary f field obj | Just x <- HashMap.lookup field obj = do
     parseNullary (f x') (HashMap.delete field obj)
 parseUnary _ _ _ =
     fail "unary: expecting one field"
+
+sendJSON :: Aeson.ToJSON a => WS.Connection -> a -> IO ()
+sendJSON conn = WS.sendTextData conn . Aeson.encode
