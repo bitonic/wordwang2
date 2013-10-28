@@ -5,9 +5,11 @@ module WordWang
     , wordwang
     ) where
 
+import           Control.Monad.Trans (MonadIO)
+
 import           WordWang.Messages
 import           WordWang.Monad
 import           WordWang.Objects
 
-wordwang :: Monad m => WWT m ()
-wordwang = undefined
+wordwang :: MonadIO m => WWT m ()
+wordwang = respond Resp{ _respRecipients = This, _respBody = RespOk }

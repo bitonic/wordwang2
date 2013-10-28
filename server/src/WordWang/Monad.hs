@@ -16,6 +16,7 @@ module WordWang.Monad
 
       -- * Operations
     , terminate
+    , respond
     ) where
 
 import           Control.Applicative (Applicative)
@@ -28,6 +29,7 @@ import           Data.Functor ((<$>), (<$))
 import           Data.Monoid ((<>))
 
 import           Control.Monad.Reader (ReaderT(..), MonadReader)
+import           Control.Monad.Trans (liftIO, MonadIO)
 import           Control.Monad.Trans.Either (EitherT(..))
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
@@ -55,7 +57,7 @@ makeLenses ''WWState
 
 newtype WWT m a =
     WWT {unWWT :: EitherT RespBody (ReaderT WWState m) a}
-    deriving (Functor, Applicative, Monad, MonadReader WWState)
+    deriving (Functor, Applicative, Monad, MonadReader WWState, MonadIO)
 
 runWWT :: Monad m => WWState -> WWT m a -> m (Either RespBody a)
 runWWT state = flip runReaderT state . runEitherT . unWWT
@@ -113,3 +115,14 @@ serverWWT connsMv storiesMv m pending = do
 
 terminate :: Monad m => RespBody -> WWT m a
 terminate = WWT . EitherT . return . Left
+
+respond :: MonadIO m => Resp -> WWT m ()
+respond resp =
+    case resp^.respRecipients of
+        All -> do
+            story <- view wwStory
+            queue <- snd <$> liftIO (readMVar story)
+            liftIO (writeQueue queue (resp^.respBody))
+        This -> do
+            conn <- view wwConn
+            liftIO (sendJSON conn (resp^.respBody))

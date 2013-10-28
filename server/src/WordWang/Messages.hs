@@ -11,7 +11,6 @@ module WordWang.Messages
     , ReqBody(..)
 
     , Resp(..)
-    , respStory
     , respRecipients
     , respBody
     , RespError
@@ -50,11 +49,10 @@ data ReqBody
     | ReqVote UserId
     | ReqBlock Block
 
-data RespRecipients = All | One UserId
+data RespRecipients = All | This
 
 data Resp = Resp
-    { _respStory      :: StoryId
-    , _respRecipients :: RespRecipients
+    { _respRecipients :: RespRecipients
     , _respBody       :: RespBody
     }
 
