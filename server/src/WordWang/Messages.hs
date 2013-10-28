@@ -90,7 +90,7 @@ instance Aeson.ToJSON RespBody where
     toJSON (RespStory story) = tagObj "story" ["contents" .= Aeson.toJSON story]
     toJSON (RespError err) = tagObj "error" ["message" .= Aeson.toJSON err]
     toJSON (RespJoined uid) = tagObj "joined" ["userId" .= Aeson.toJSON uid]
-    toJSON (RespCreated sid) = tagObj "created" ["userId" .= Aeson.toJSON sid]
+    toJSON (RespCreated sid) = tagObj "created" ["storyId" .= Aeson.toJSON sid]
     toJSON RespOk = tagObj "ok" []
 
 instance Aeson.FromJSON RespBody where

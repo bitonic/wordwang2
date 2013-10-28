@@ -10,7 +10,7 @@ import           WordWang
 
 run :: Connections -> Stories -> Snap ()
 run conns stories = do
-    Snap.path "/ws" (WS.runWebSocketsSnap (serverWWT conns stories wordwang))
+    Snap.path "ws" (WS.runWebSocketsSnap (serverWWT conns stories wordwang))
 
 main :: IO ()
 main = do

@@ -21,7 +21,7 @@ module WordWang.Monad
 
 import           Control.Applicative (Applicative)
 import           Control.Concurrent (forkIO)
-import           Control.Concurrent (modifyMVar_, newMVar, readMVar)
+import           Control.Concurrent (modifyMVar, modifyMVar_, newMVar, readMVar)
 import           Control.Concurrent.MVar (MVar)
 import           Control.Exception (catch)
 import           Control.Monad (forever, filterM)
@@ -82,7 +82,7 @@ serverWWT connsMv storiesMv m pending = do
             Left err ->
                 sendErr ("error decoding request: " <> T.pack err)
             Right (_reqBody -> ReqCreate) -> do
-                modifyMVar_ storiesMv $ \stories -> do
+                sid <- modifyMVar storiesMv $ \stories -> do
                     sid <- newId
                     let story = Story{ _storyId         = sid
                                      , _storyUsers      = HashMap.empty
@@ -93,8 +93,8 @@ serverWWT connsMv storiesMv m pending = do
                     -- TODO do something with this
                     queueTid <- forkIO (queueWorker connsMv queue)
                     both <- newMVar (story, queue)
-                    return (HashMap.insert sid both stories)
-                sendJSON conn RespOk
+                    return (HashMap.insert sid both stories, sid)
+                sendJSON conn (RespCreated sid)
             Right req -> case req^.reqStory of
                 Nothing -> sendErr "no story in request"
                 Just sid -> do
