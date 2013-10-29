@@ -45,10 +45,14 @@ wordwang :: WWT IO ()
 wordwang = do
     req <- view wwReq
     case req^.reqBody of
-        ReqCreate -> internalError "wordwang: received ReqCreate"
+        ReqCreate ->
+            internalError "wordwang: received ReqCreate"
         ReqJoin -> do
             -- TODO should we check if the user is already authenticated?
             user <- liftIO . newUser =<< makeSecret
             modifyStory' (& (storyUsers . at (user^.userId)) ?~ user)
             terminate (RespJoined (user^.userId) (user^.userSecret))
-        _ -> undefined
+        ReqCandidate candidate -> do
+            undefined
+        ReqVote uid -> do
+            undefined
