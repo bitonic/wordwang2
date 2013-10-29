@@ -58,7 +58,7 @@ type UserSecret = ByteString
 type UserNick = Text
 data User = User
     { _userId     :: UserId
-    , _userSecret :: UserSecret
+    , _userSecret :: UserSecret -- TODO Hash the secret
     } deriving (Eq, Show)
 
 newUser :: UserSecret -> IO User

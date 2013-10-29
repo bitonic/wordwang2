@@ -32,7 +32,6 @@ import           Control.Monad.Reader (ReaderT(..), MonadReader)
 import           Control.Monad.Trans (liftIO, MonadIO)
 import           Control.Monad.Trans.Either (EitherT(..))
 import           Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Text as T
 
 import           Control.Lens hiding (both)
@@ -89,13 +88,13 @@ serverWWT connsMv storiesMv m pending = do
                     -- TODO do something with this
                     queueTid <- forkIO (queueWorker connsMv queue)
                     both <- newMVar (story, queue)
-                    return (HashMap.insert sid both stories, sid)
+                    return (stories & at sid ?~ both, sid)
                 sendJSON conn (RespCreated sid)
             Right req -> case req^.reqStory of
                 Nothing -> sendErr "no story in request"
                 Just sid -> do
                     stories <- readMVar storiesMv
-                    case HashMap.lookup sid stories of
+                    case stories ^. at sid of
                         Nothing -> sendErr "story not found"
                         Just story -> do
                             let wwState = WWState { _wwReq   = req

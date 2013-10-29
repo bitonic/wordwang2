@@ -5,7 +5,7 @@ module WordWang
     , wordwang
     ) where
 
-import           Control.Concurrent.MVar (modifyMVar_)
+import           Control.Concurrent.MVar (modifyMVar_, readMVar)
 import           Data.Functor ((<$>))
 import           Data.Monoid ((<>))
 
@@ -41,6 +41,22 @@ modifyStory f = do
 modifyStory' :: (Story -> Story) -> WWT IO ()
 modifyStory' f = modifyStory (return . f)
 
+viewStory :: WWT IO Story
+viewStory = fst <$> (liftIO . readMVar =<< view wwStory)
+
+authenticated :: WWT IO UserId
+authenticated = do
+    authM <- view (wwReq . reqAuth)
+    case authM of
+        Nothing -> authErr "no credentials provided"
+        Just auth -> do
+            story <- viewStory
+            let uid = auth^.reqAuthUser
+            maybe (authErr "invalid credentials") (const (return uid))
+                  (story^.storyUsers.at uid)
+  where
+    authErr err = terminate (RespError ("authentication required, but " <> err))
+
 wordwang :: WWT IO ()
 wordwang = do
     req <- view wwReq
@@ -50,9 +66,11 @@ wordwang = do
         ReqJoin -> do
             -- TODO should we check if the user is already authenticated?
             user <- liftIO . newUser =<< makeSecret
-            modifyStory' (& (storyUsers . at (user^.userId)) ?~ user)
+            modifyStory' (& storyUsers. at (user^.userId) ?~ user)
             terminate (RespJoined (user^.userId) (user^.userSecret))
         ReqCandidate candidate -> do
+            uid <- authenticated
             undefined
         ReqVote uid -> do
+            uid <- authenticated
             undefined
