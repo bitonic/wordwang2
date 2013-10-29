@@ -5,6 +5,8 @@ module WordWang
     , wordwang
     ) where
 
+import           Control.Concurrent.MVar (modifyMVar_)
+import           Data.Functor ((<$>))
 import           Data.Monoid ((<>))
 
 import           Control.Monad.Trans (liftIO)
@@ -31,6 +33,14 @@ makeSecret = do
         Left err -> internalError (Text.pack (show err))
         Right (bs, _) -> return (Base64.URL.encode bs)
 
+modifyStory :: (Story -> IO Story) -> WWT IO ()
+modifyStory f = do
+    storyMv <- view wwStory
+    liftIO $ modifyMVar_ storyMv $ \(story, queue) -> (, queue) <$> f story
+
+modifyStory' :: (Story -> Story) -> WWT IO ()
+modifyStory' f = modifyStory (return . f)
+
 wordwang :: WWT IO ()
 wordwang = do
     req <- view wwReq
@@ -38,7 +48,7 @@ wordwang = do
         ReqCreate -> internalError "wordwang: received ReqCreate"
         ReqJoin -> do
             -- TODO should we check if the user is already authenticated?
-            uid <- liftIO newId
-            secret <- makeSecret
-            terminate (RespJoined uid secret)
+            user <- liftIO . newUser =<< makeSecret
+            modifyStory' (& (storyUsers . at (user^.userId)) ?~ user)
+            terminate (RespJoined (user^.userId) (user^.userSecret))
         _ -> undefined

@@ -83,12 +83,8 @@ serverWWT connsMv storiesMv m pending = do
                 sendErr ("error decoding request: " <> T.pack err)
             Right (_reqBody -> ReqCreate) -> do
                 sid <- modifyMVar storiesMv $ \stories -> do
-                    sid <- newId
-                    let story = Story{ _storyId         = sid
-                                     , _storyUsers      = HashMap.empty
-                                     , _storySoFar      = []
-                                     , _storyCandidates = HashMap.empty
-                                     }
+                    story <- emptyStory
+                    let sid = story^.storyId
                     queue <- newQueue
                     -- TODO do something with this
                     queueTid <- forkIO (queueWorker connsMv queue)

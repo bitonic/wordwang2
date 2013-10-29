@@ -33,17 +33,17 @@ data Req = Req
     { _reqStory :: Maybe StoryId
     , _reqAuth  :: Maybe ReqAuth
     , _reqBody  :: ReqBody
-    }
+    } deriving (Eq, Show)
 
 data ReqStory = ReqStory
     { _reqStoryStory :: Story
     , _reqStoryAuth  :: Maybe ReqAuth
-    }
+    } deriving (Eq, Show)
 
 data ReqAuth = ReqAuth
     { _reqAuthId     :: UserId
     , _reqAuthSecret :: UserSecret
-    }
+    } deriving (Eq, Show)
 
 data ReqBody
     = ReqCreate
@@ -51,13 +51,15 @@ data ReqBody
     | ReqCandidate CandidateBody
     | ReqVote UserId
     | ReqBlock Block
+    deriving (Eq, Show)
 
 data RespRecipients = All | This
+    deriving (Eq, Show)
 
 data Resp = Resp
     { _respRecipients :: RespRecipients
     , _respBody       :: RespBody
-    }
+    } deriving (Eq, Show)
 
 type RespError = Text
 data RespBody
@@ -66,6 +68,7 @@ data RespBody
     | RespJoined UserId UserSecret
     | RespCreated StoryId
     | RespOk
+    deriving (Eq, Show)
 
 respToThis :: RespBody -> Resp
 respToThis body = Resp{_respRecipients = This, _respBody = body}

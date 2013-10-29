@@ -10,6 +10,7 @@ module WordWang.Objects
     , User(..)
     , userId
     , userSecret
+    , newUser
 
     , CandidateBody
     , Candidate(..)
@@ -24,6 +25,7 @@ module WordWang.Objects
     , storyUsers
     , storyCandidates
     , storySoFar
+    , emptyStory
     ) where
 
 import           Data.Functor ((<$>))
@@ -46,7 +48,7 @@ import qualified Data.UUID.V4 as UUID
 import           WordWang.Utils
 
 newtype Id = Id { unId :: UUID.UUID }
-    deriving (Eq, Ord, Show, Read)
+    deriving (Eq, Ord, Show)
 
 newId :: IO Id
 newId = Id <$> UUID.nextRandom
@@ -57,14 +59,21 @@ type UserNick = Text
 data User = User
     { _userId     :: UserId
     , _userSecret :: UserSecret
-    }
+    } deriving (Eq, Show)
+
+newUser :: UserSecret -> IO User
+newUser secret = do
+    uid <- newId
+    return User{ _userId     = uid
+               , _userSecret = secret
+               }
 
 type CandidateBody = Text
 data Candidate = Candidate
     { _candidateUser  :: UserId
     , _candidateBody  :: CandidateBody
     , _candidateVotes :: HashSet UserId
-    }
+    } deriving (Eq, Show)
 
 type StoryId = Id
 type Block = Text
@@ -73,7 +82,16 @@ data Story = Story
     , _storyUsers      :: HashMap UserId User
     , _storySoFar      :: [Block]
     , _storyCandidates :: HashMap UserId Candidate
-    }
+    } deriving (Eq, Show)
+
+emptyStory :: IO Story
+emptyStory = do
+    sid <- newId
+    return Story{ _storyId         = sid
+                , _storyUsers      = HashMap.empty
+                , _storySoFar      = []
+                , _storyCandidates = HashMap.empty
+                }
 
 ----------------------------------------------------------------------
 
