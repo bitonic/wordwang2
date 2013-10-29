@@ -16,6 +16,9 @@ module WordWang.Messages
     , RespError
     , RespRecipients(..)
     , RespBody(..)
+    , respToThis
+    , respToAll
+    , respError
     ) where
 
 import           Control.Lens (makeLenses)
@@ -63,6 +66,15 @@ data RespBody
     | RespJoined UserId UserSecret
     | RespCreated StoryId
     | RespOk
+
+respToThis :: RespBody -> Resp
+respToThis body = Resp{_respRecipients = This, _respBody = body}
+
+respToAll :: RespBody -> Resp
+respToAll body = Resp{_respRecipients = All, _respBody = body}
+
+respError :: RespError -> Resp
+respError err = respToThis (RespError err)
 
 ----------------------------------------------------------------------
 

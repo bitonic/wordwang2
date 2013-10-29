@@ -21,8 +21,11 @@ library
                    , WordWang.Queue
 
   build-depends:     base                 >= 4 && < 5
+                   , DRBG                 >= 0.5
                    , aeson                >= 0.6
+                   , base64-bytestring    >= 1.0
                    , bytestring           >= 0.10
+                   , crypto-api           >= 0.3
                    , either               >= 3.4
                    , hashable             >= 1.1
                    , lens                 >= 3.10
