@@ -44,7 +44,7 @@ data ReqAuth = ReqAuth
 
 data ReqBody
     = ReqCreate
-    | ReqJoin UserSecret
+    | ReqJoin
     | ReqCandidate CandidateBody
     | ReqVote UserId
     | ReqBlock Block
@@ -60,7 +60,7 @@ type RespError = Text
 data RespBody
     = RespStory Story
     | RespError RespError
-    | RespJoined UserId
+    | RespJoined UserId UserSecret
     | RespCreated StoryId
     | RespOk
 
@@ -72,33 +72,34 @@ Aeson.deriveJSON (wwJSON $ delPrefix "_reqAuth")  ''ReqAuth
 
 instance Aeson.ToJSON ReqBody where
     toJSON ReqCreate = tagObj "create" []
-    toJSON (ReqJoin secret) = tagObj "join" ["secret" .= secret]
+    toJSON ReqJoin = tagObj "join" []
     toJSON (ReqCandidate body) = tagObj "candidate" ["body" .= body]
-    toJSON (ReqVote uid) = tagObj "vote" ["userId" .= uid]
+    toJSON (ReqVote uid) = tagObj "vote" ["user" .= uid]
     toJSON (ReqBlock block) = tagObj "block" ["body" .= block]
 
 instance Aeson.FromJSON ReqBody where
     parseJSON = parseTagged
         [ ("create",    parseNullary ReqCreate)
-        , ("join",      parseUnary   ReqJoin      "secret")
+        , ("join",      parseNullary ReqJoin)
         , ("candidate", parseUnary   ReqCandidate "body")
-        , ("vote",      parseUnary   ReqVote      "userId")
+        , ("vote",      parseUnary   ReqVote      "user")
         , ("block",     parseUnary   ReqBlock     "body")
         ]
 
 instance Aeson.ToJSON RespBody where
     toJSON (RespStory story) = tagObj "story" ["contents" .= Aeson.toJSON story]
     toJSON (RespError err) = tagObj "error" ["message" .= Aeson.toJSON err]
-    toJSON (RespJoined uid) = tagObj "joined" ["userId" .= Aeson.toJSON uid]
-    toJSON (RespCreated sid) = tagObj "created" ["storyId" .= Aeson.toJSON sid]
+    toJSON (RespJoined uid secret) =
+        tagObj "joined" ["user" .= Aeson.toJSON uid, "secret" .= Aeson.toJSON secret]
+    toJSON (RespCreated sid) = tagObj "created" ["story" .= Aeson.toJSON sid]
     toJSON RespOk = tagObj "ok" []
 
 instance Aeson.FromJSON RespBody where
     parseJSON = parseTagged
         [ ("story", parseUnary RespStory "contents")
         , ("error", parseUnary RespError "message")
-        , ("joined", parseUnary RespJoined "userId")
-        , ("created", parseUnary RespCreated "storyId")
+        , ("joined", parseBinary RespJoined "user" "secret")
+        , ("created", parseUnary RespCreated "story")
         , ("ok", parseNullary RespOk)
         ]
 

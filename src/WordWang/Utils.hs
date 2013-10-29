@@ -6,6 +6,7 @@ module WordWang.Utils
     , parseTagged
     , parseNullary
     , parseUnary
+    , parseBinary
     , sendJSON
     ) where
 
@@ -73,6 +74,17 @@ parseUnary f field obj | Just x <- HashMap.lookup field obj = do
     parseNullary (f x') (HashMap.delete field obj)
 parseUnary _ _ _ =
     fail "unary: expecting one field"
+
+parseBinary :: (Aeson.FromJSON a, Aeson.FromJSON b)
+            => (a -> b -> c) -> Text -> Text -> Aeson.Object
+            -> Aeson.Parser c
+parseBinary f field1 field2 obj
+    | Just x <- HashMap.lookup field1 obj, Just y <- HashMap.lookup field2 obj = do
+        x' <- Aeson.parseJSON x
+        y' <- Aeson.parseJSON y
+        parseNullary (f x' y') (HashMap.delete field1 (HashMap.delete field2 obj))
+parseBinary _ _ _ _ =
+    fail "binary: expeting two fields"
 
 sendJSON :: Aeson.ToJSON a => WS.Connection -> a -> IO ()
 sendJSON conn = WS.sendTextData conn . Aeson.encode
