@@ -5,7 +5,8 @@ module WordWang
     , wordwang
     ) where
 
-import           Control.Concurrent.MVar (modifyMVar_, readMVar)
+import           Control.Concurrent.MVar (modifyMVar, readMVar)
+import           Control.Monad (join)
 import           Data.Functor ((<$>))
 import           Data.Monoid ((<>))
 
@@ -33,13 +34,21 @@ makeSecret = do
         Left err -> internalError (Text.pack (show err))
         Right (bs, _) -> return (Base64.URL.encode bs)
 
-modifyStory :: (Story -> IO Story) -> WWT IO ()
+modifyStory :: (Story -> IO (Story, a)) -> WWT IO a
 modifyStory f = do
     storyMv <- view wwStory
-    liftIO $ modifyMVar_ storyMv $ \(story, queue) -> (, queue) <$> f story
+    liftIO $ modifyMVar storyMv $ \(story, queue) -> do
+        (story', x) <- f story
+        return ((story', queue), x)
 
-modifyStory' :: (Story -> Story) -> WWT IO ()
+modifyStory_ :: (Story -> IO Story) -> WWT IO ()
+modifyStory_ f = modifyStory $ \story -> (, ()) <$> f story
+
+modifyStory' :: (Story -> (Story, a)) -> WWT IO a
 modifyStory' f = modifyStory (return . f)
+
+modifyStory'_ :: (Story -> Story) -> WWT IO ()
+modifyStory'_ f = modifyStory_ (return . f)
 
 viewStory :: WWT IO Story
 viewStory = fst <$> (liftIO . readMVar =<< view wwStory)
@@ -66,11 +75,16 @@ wordwang = do
         ReqJoin -> do
             -- TODO should we check if the user is already authenticated?
             user <- liftIO . newUser =<< makeSecret
-            modifyStory' (& storyUsers. at (user^.userId) ?~ user)
+            modifyStory'_ (& storyUsers.at (user^.userId) ?~ user)
             terminate (RespJoined (user^.userId) (user^.userSecret))
-        ReqCandidate candidate -> do
+        ReqCandidate body -> do
             uid <- authenticated
-            undefined
-        ReqVote uid -> do
+            let cand = candidate uid body
+            join $ modifyStory' $ \story -> do
+                case story^.storyCands^.at uid of
+                    Just _ -> (story, return ())
+                    Nothing -> ( story & storyCands.at uid ?~ cand
+                               , respond (respToThis (RespCandidate cand)) )
+        ReqVote voteUid -> do
             uid <- authenticated
             undefined

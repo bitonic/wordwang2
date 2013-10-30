@@ -1,3 +1,4 @@
+-- TODO all strict fields
 module WordWang.Objects
     ( Text
 
@@ -14,16 +15,17 @@ module WordWang.Objects
 
     , CandidateBody
     , Candidate(..)
-    , candidateBody
-    , candidateUser
-    , candidateVotes
+    , candBody
+    , candUser
+    , candVotes
+    , candidate
 
     , StoryId
     , Block
     , Story(..)
     , storyId
     , storyUsers
-    , storyCandidates
+    , storyCands
     , storySoFar
     , emptyStory
     ) where
@@ -35,6 +37,7 @@ import           Data.ByteString (ByteString)
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import           Data.HashSet (HashSet)
+import qualified Data.HashSet as HashSet
 import           Data.Hashable (Hashable(hashWithSalt))
 import           Data.Text (Text)
 import qualified Data.Text.Encoding as T
@@ -70,27 +73,31 @@ newUser secret = do
 
 type CandidateBody = Text
 data Candidate = Candidate
-    { _candidateUser  :: UserId
-    , _candidateBody  :: CandidateBody
-    , _candidateVotes :: HashSet UserId
+    { _candUser  :: UserId
+    , _candBody  :: CandidateBody
+    , _candVotes :: HashSet UserId
     } deriving (Eq, Show)
+
+candidate :: UserId -> CandidateBody -> Candidate
+candidate uid body =
+    Candidate{_candUser = uid, _candBody = body, _candVotes = HashSet.empty}
 
 type StoryId = Id
 type Block = Text
 data Story = Story
-    { _storyId         :: StoryId
-    , _storyUsers      :: HashMap UserId User
-    , _storySoFar      :: [Block]
-    , _storyCandidates :: HashMap UserId Candidate
+    { _storyId    :: StoryId
+    , _storyUsers :: HashMap UserId User
+    , _storySoFar :: [Block]
+    , _storyCands :: HashMap UserId Candidate
     } deriving (Eq, Show)
 
 emptyStory :: IO Story
 emptyStory = do
     sid <- newId
-    return Story{ _storyId         = sid
-                , _storyUsers      = HashMap.empty
-                , _storySoFar      = []
-                , _storyCandidates = HashMap.empty
+    return Story{ _storyId    = sid
+                , _storyUsers = HashMap.empty
+                , _storySoFar = []
+                , _storyCands = HashMap.empty
                 }
 
 ----------------------------------------------------------------------
@@ -122,9 +129,9 @@ instance Aeson.FromJSON v => Aeson.FromJSON (HashMap Id v) where
         f = traverse (\(k, v) -> (, v) . Id <$> UUID.fromASCIIBytes k)
           . HashMap.toList
 
-Aeson.deriveJSON (wwJSON $ delPrefix "_user")      ''User
-Aeson.deriveJSON (wwJSON $ delPrefix "_candidate") ''Candidate
-Aeson.deriveJSON (wwJSON $ delPrefix "_story")     ''Story
+Aeson.deriveJSON (wwJSON $ delPrefix "_user")  ''User
+Aeson.deriveJSON (wwJSON $ delPrefix "_cand")  ''Candidate
+Aeson.deriveJSON (wwJSON $ delPrefix "_story") ''Story
 
 ----------------------------------------------------------------------
 
