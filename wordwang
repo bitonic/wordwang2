@@ -1,0 +1,2 @@
+#!/bin/bash
+wordwang_datadir=data ./dist/build/wordwang-server/wordwang-server
