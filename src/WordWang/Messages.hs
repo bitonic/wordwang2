@@ -91,9 +91,9 @@ instance Aeson.FromJSON ReqBody where
     parseJSON = parseTagged
         [ ("create",      parseNullary ReqCreate)
         , ("join",        parseNullary ReqJoin)
-        , ("candidate",   parseUnary   ReqCandidate "body")
+        , ("candidate",   parseUnary   ReqCandidate "block")
         , ("vote",        parseUnary   ReqVote      "user")
-        , ("closeVotind", parseNullary ReqCloseVoting)
+        , ("closeVoting", parseNullary ReqCloseVoting)
         ]
 
 instance Aeson.ToJSON RespBody where
