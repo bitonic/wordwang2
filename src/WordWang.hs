@@ -8,9 +8,12 @@ module WordWang
 
 import           Control.Concurrent.MVar (modifyMVar, readMVar)
 import           Data.Functor ((<$>))
+import           Data.List (maximumBy)
 import           Data.Monoid ((<>))
+import           Data.Ord (comparing)
 
 import           Control.Monad.Trans (liftIO)
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 import qualified Data.Text as Text
 
@@ -88,10 +91,19 @@ wordwang = do
         ReqVote candUid -> do
             voteUid <- authenticated
             resp <- respondInIO
-            modifyStory_ $ \story -> do
-                case story^.storyCands^.at candUid of
-                    Just cand | not (HashSet.member voteUid (cand^.candVotes)) -> do
-                        resp (respToAll (RespVote candUid voteUid))
-                        let cand' = cand & candVotes %~ HashSet.insert voteUid
-                        return (story & storyCands.at candUid ?~ cand')
-                    _ -> return story
+            modifyStory_ $ \story -> case story^.storyCands^.at candUid of
+                Just cand | not (HashSet.member voteUid (cand^.candVotes)) -> do
+                    resp (respToAll (RespVote candUid voteUid))
+                    let cand' = cand & candVotes %~ HashSet.insert voteUid
+                    return (story & storyCands.at candUid ?~ cand')
+                _ -> return story
+        -- TODO used for debugging, remove
+        ReqCloseVoting -> do
+            resp <- respondInIO
+            modifyStory_ $ \story -> case HashMap.elems (story^.storyCands) of
+                [] -> return story -- TODO should we return an error?
+                cands@(_:_) -> do
+                    let cand = maximumBy (comparing (HashSet.size . _candVotes))
+                                         cands
+                    resp (respToAll (RespVotingClosed (cand^.candBlock)))
+                    return (story & storyCands .~ HashMap.empty)

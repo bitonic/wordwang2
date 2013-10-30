@@ -48,8 +48,9 @@ data ReqAuth = ReqAuth
 data ReqBody
     = ReqCreate
     | ReqJoin
-    | ReqCandidate CandidateBody
+    | ReqCandidate Block
     | ReqVote UserId
+    | ReqCloseVoting
     deriving (Eq, Show)
 
 data RespRecipients = All | This
@@ -66,7 +67,7 @@ data RespBody
     | RespError !RespError
     | RespJoined !UserId !UserSecret
     | RespCreated !StoryId
-    | RespBlock !Block
+    | RespVotingClosed !Block
     | RespCandidate !Candidate
     | RespVote {- Candidate -} !UserId {- Vote -} !UserId
     deriving (Eq, Show)
@@ -88,10 +89,11 @@ Aeson.deriveFromJSON (wwJSON $ delPrefix "_reqAuth")  ''ReqAuth
 
 instance Aeson.FromJSON ReqBody where
     parseJSON = parseTagged
-        [ ("create",    parseNullary ReqCreate)
-        , ("join",      parseNullary ReqJoin)
-        , ("candidate", parseUnary   ReqCandidate "body")
-        , ("vote",      parseUnary   ReqVote      "user")
+        [ ("create",      parseNullary ReqCreate)
+        , ("join",        parseNullary ReqJoin)
+        , ("candidate",   parseUnary   ReqCandidate "body")
+        , ("vote",        parseUnary   ReqVote      "user")
+        , ("closeVotind", parseNullary ReqCloseVoting)
         ]
 
 instance Aeson.ToJSON RespBody where
@@ -102,7 +104,8 @@ instance Aeson.ToJSON RespBody where
                         , "secret" .= Aeson.toJSON secret
                         ]
     toJSON (RespCreated sid) = tagObj "created" ["story" .= Aeson.toJSON sid]
-    toJSON (RespBlock block) = tagObj "block" ["body" .= Aeson.toJSON block]
+    toJSON (RespVotingClosed block) =
+        tagObj "votingClosed" ["block" .= Aeson.toJSON block]
     toJSON (RespCandidate cand) =
         tagObj "candidate" ["body" .= Aeson.toJSON cand]
     toJSON (RespVote candUid voteUid) =

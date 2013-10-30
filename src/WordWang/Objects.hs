@@ -13,9 +13,8 @@ module WordWang.Objects
     , userSecret
     , newUser
 
-    , CandidateBody
     , Candidate(..)
-    , candBody
+    , candBlock
     , candUser
     , candVotes
     , candidate
@@ -71,17 +70,16 @@ newUser secret = do
                , _userSecret = secret
                }
 
-type CandidateBody = Text
 data Candidate = Candidate
     { _candUser  :: !UserId
-    , _candBody  :: !CandidateBody
+    , _candBlock :: !Block
     , _candVotes :: !(HashSet UserId)
     } deriving (Eq, Show)
 
-candidate :: UserId -> CandidateBody -> Candidate
-candidate uid body =
+candidate :: UserId -> Block -> Candidate
+candidate uid block =
     Candidate{ _candUser  = uid
-             , _candBody  = body
+             , _candBlock = block
              , _candVotes = HashSet.singleton uid
              }
 
