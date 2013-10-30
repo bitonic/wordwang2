@@ -1,7 +1,16 @@
 var ww;
+var wwSt;
 
 (function() {
 'use strict';
+
+if (typeof Object.create !== 'function') {
+    Object.create = function (o) {
+        function F() {}
+        F.prototype = o;
+        return new F();
+    };
+}
 
 var applyHandlers = function(handlers, x) {
     var i;
@@ -13,102 +22,30 @@ var applyHandlers = function(handlers, x) {
 ww = {
     debug: true,
     host: 'ws://localhost:8000/ws',
-    _onRespHandlers: {},
-    _onRespGlobalHandlers: [],
-    _onOpenHandlers: [],
 
     newState: function(host) {
-        var st = {
-            sock: new WebSocket(host),
-            story: null,
-            user: null
-        };
+        var st = Object.create(WWState);
+        st.sock = new WebSocket(ww.host);
         st.sock.onmessage = function(event) {
             ww.debugLog("wordwang: received `" + event.data + "'");
             var resp = JSON.parse(event.data);
-            applyHandlers(ww._onRespGlobalHandlers, resp);
+            applyHandlers(st._onRespGlobalHandlers, resp);
             var tag = resp.tag;
-            if (!(tag in ww._onRespHandlers)) {
-                ww._onRespHandlers[tag] = [];
+            if (!(tag in st._onRespHandlers)) {
+                st._onRespHandlers[tag] = [];
             }
-            applyHandlers(ww._onRespHandlers[tag], resp);
+            applyHandlers(st._onRespHandlers[tag], resp);
         };
         st.sock.onopen = function(event) {
-            applyHandlers(ww._onOpenHandlers, event);
+            applyHandlers(st._onOpenHandlers, event);
         };
-        ww.onResp(st, 'created', function(resp) {
+        st.onResp('created', function(resp) {
             st.story = resp.story;
         });
-        ww.onResp(st, 'joined', function(resp) {
+        st.onResp('joined', function(resp) {
             st.user = {id: resp.user, secret: resp.secret};
         });
         return st;
-    },
-    
-    // -----------------------------------------------------------------
-    // Requests
-    
-    sendReq: function(st, tag, body) {
-        body.tag = tag;
-        var req = {
-            story: st.story,
-            auth : null,
-            body : body
-        };
-        if (st.user !== null) {
-            req.auth = {authUser: st.user.id, authSecret: st.user.secret};
-        }
-        var payload = JSON.stringify(req);
-        ww.debugLog('wordwang: sending `' + payload + "'");
-        st.sock.send(payload);
-    },
-
-    create: function(st) {
-        if (st.story === null) {
-            ww.sendReq(st, 'create', {});
-        } else {
-            ww.debugLog("`ww.create' but story already exists in state, ignoring");
-        }
-    },
-    
-    join: function(st) {
-        if (st.user === null) {
-            ww.sendReq(st, 'join', {});
-        } else {
-            ww.debugLog("`ww.join' but user already exists in state, ignoring");
-        }
-    },
-    
-    candidate: function(st, block) {
-        ww.sendReq(st, 'candidate', {block: block});
-    },
-    
-    vote: function(st, user) {
-        ww.sendReq(st, 'vote', {user: user});
-    },
-    
-    closeVoting: function(st) {
-        ww.sendReq(st, 'closeVoting', {});
-    },
-    
-    // -----------------------------------------------------------------
-    // Events
-    
-    onOpen: function(st, f) {
-        ww._onOpenHandlers.push(f);
-    },
-    
-    onResp: function(st, tag, f) {
-        var handlers;
-        if (tag === null) {
-            handlers = ww._onRespGlobalHandlers;
-        } else {
-            if (!(tag in ww._onRespHandlers)) {
-                ww._onRespHandlers[tag] = [];
-            }
-            handlers = ww._onRespHandlers[tag];
-        }
-        handlers.push(f);
     },
 
     // -----------------------------------------------------------------
@@ -130,28 +67,28 @@ ww = {
     // Startup
 
     startup: function() {
-        window.wwSt = ww.newState(ww.host);
+        wwSt = ww.newState(ww.host);
 
         // Join on room creation
-        ww.onResp(window.wwSt, 'created', function(_) {
+        wwSt.onResp('created', function(_) {
             ww.createDiv().style.display = 'none';
             ww.storyDiv().style.display = 'block';
-            ww.join(window.wwSt);
+            wwSt.join();
         });
 
         // Add the listener to create stories when the button is
         // pressed
         ww.createForm().addEventListener('submit', function() {
-            ww.create(window.wwSt);
+            wwSt.create();
         });
 
-        ww.onOpen(window.wwSt, function(_) {
+        wwSt.onOpen(function(_) {
             var story = window.location.hash.substring(1);
             if (story !== '') {
                 // Join existing one
                 ww.storyDiv().style.display = 'block';
-                window.wwSt.story = story;
-                ww.join(window.wwSt);
+                wwSt.story = story;
+                wwSt.join();
             } else {
                 // Create it
                 ww.createDiv().style.display = 'block';
@@ -176,4 +113,80 @@ ww = {
         }
     }
 };
+
+var WWState = {
+    sock: null,
+    story: null,
+    user: null,
+    _onRespHandlers: {},
+    _onRespGlobalHandlers: [],
+    _onOpenHandlers: [],
+
+    // -----------------------------------------------------------------
+    // Requests
+
+    sendReq: function(tag, body) {
+        body.tag = tag;
+        var req = {
+            story: this.story,
+            auth : null,
+            body : body
+        };
+        if (this.user !== null) {
+            req.auth = {authUser: this.user.id, authSecret: this.user.secret};
+        }
+        var payload = JSON.stringify(req);
+        ww.debugLog('wordwang: sending `' + payload + "'");
+        this.sock.send(payload);
+    },
+
+    create: function() {
+        if (this.story === null) {
+            this.sendReq('create', {});
+        } else {
+            ww.debugLog("`WWState.create' but story already exists in state, ignoring");
+        }
+    },
+
+    join: function() {
+        if (this.user === null) {
+            this.sendReq('join', {});
+        } else {
+            ww.debugLog("`WWState.join' but user already exists in state, ignoring");
+        }
+    },
+
+    candidate: function(block) {
+        this.sendReq('candidate', {block: block});
+    },
+
+    vote: function(st, user) {
+        this.sendReq('vote', {user: user});
+    },
+
+    closeVoting: function(st) {
+        this.sendReq('closeVoting', {});
+    },
+
+    // -----------------------------------------------------------------
+    // Events
+
+    onOpen: function(f) {
+        this._onOpenHandlers.push(f);
+    },
+
+    onResp: function(tag, f) {
+        var handlers;
+        if (tag === null) {
+            handlers = this._onRespGlobalHandlers;
+        } else {
+            if (!(tag in this._onRespHandlers)) {
+                this._onRespHandlers[tag] = [];
+            }
+            handlers = this._onRespHandlers[tag];
+        }
+        handlers.push(f);
+    }
+};
+
 })();
