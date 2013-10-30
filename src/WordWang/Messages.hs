@@ -30,19 +30,19 @@ import           WordWang.Objects
 import           WordWang.Utils
 
 data Req = Req
-    { _reqStory :: Maybe StoryId
-    , _reqAuth  :: Maybe ReqAuth
-    , _reqBody  :: ReqBody
+    { _reqStory :: !(Maybe StoryId)
+    , _reqAuth  :: !(Maybe ReqAuth)
+    , _reqBody  :: !ReqBody
     } deriving (Eq, Show)
 
 data ReqStory = ReqStory
-    { _reqStoryStory :: Story
-    , _reqStoryAuth  :: Maybe ReqAuth
+    { _reqStoryStory :: !Story
+    , _reqStoryAuth  :: !(Maybe ReqAuth)
     } deriving (Eq, Show)
 
 data ReqAuth = ReqAuth
-    { _reqAuthUser   :: UserId
-    , _reqAuthSecret :: UserSecret
+    { _reqAuthUser   :: !UserId
+    , _reqAuthSecret :: !UserSecret
     } deriving (Eq, Show)
 
 data ReqBody
@@ -56,18 +56,18 @@ data RespRecipients = All | This
     deriving (Eq, Show)
 
 data Resp = Resp
-    { _respRecipients :: RespRecipients
-    , _respBody       :: RespBody
+    { _respRecipients :: !RespRecipients
+    , _respBody       :: !RespBody
     } deriving (Eq, Show)
 
 type RespError = Text
 data RespBody
-    = RespStory Story
-    | RespError RespError
-    | RespJoined UserId UserSecret
-    | RespCreated StoryId
-    | RespBlock Block
-    | RespCandidate Candidate
+    = RespStory !Story
+    | RespError !RespError
+    | RespJoined !UserId !UserSecret
+    | RespCreated !StoryId
+    | RespBlock !Block
+    | RespCandidate !Candidate
     | RespOk
     deriving (Eq, Show)
 

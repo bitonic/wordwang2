@@ -60,8 +60,8 @@ type UserId = Id
 type UserSecret = ByteString
 type UserNick = Text
 data User = User
-    { _userId     :: UserId
-    , _userSecret :: UserSecret -- TODO Hash the secret
+    { _userId     :: !UserId
+    , _userSecret :: !UserSecret -- TODO Hash the secret
     } deriving (Eq, Show)
 
 newUser :: UserSecret -> IO User
@@ -73,9 +73,9 @@ newUser secret = do
 
 type CandidateBody = Text
 data Candidate = Candidate
-    { _candUser  :: UserId
-    , _candBody  :: CandidateBody
-    , _candVotes :: HashSet UserId
+    { _candUser  :: !UserId
+    , _candBody  :: !CandidateBody
+    , _candVotes :: !(HashSet UserId)
     } deriving (Eq, Show)
 
 candidate :: UserId -> CandidateBody -> Candidate
@@ -85,10 +85,10 @@ candidate uid body =
 type StoryId = Id
 type Block = Text
 data Story = Story
-    { _storyId    :: StoryId
-    , _storyUsers :: HashMap UserId User
-    , _storySoFar :: [Block]
-    , _storyCands :: HashMap UserId Candidate
+    { _storyId    :: !StoryId
+    , _storyUsers :: !(HashMap UserId User)
+    , _storySoFar :: ![Block]
+    , _storyCands :: !(HashMap UserId Candidate)
     } deriving (Eq, Show)
 
 emptyStory :: IO Story
