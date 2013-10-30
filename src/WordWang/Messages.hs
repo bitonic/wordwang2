@@ -50,7 +50,7 @@ data ReqBody
     | ReqJoin
     | ReqCandidate Block
     | ReqVote UserId
-    | ReqCloseVoting
+    | ReqCloseVoting -- TODO used for debugging, remove
     deriving (Eq, Show)
 
 data RespRecipients = All | This

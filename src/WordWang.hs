@@ -97,7 +97,6 @@ wordwang = do
                     let cand' = cand & candVotes %~ HashSet.insert voteUid
                     return (story & storyCands.at candUid ?~ cand')
                 _ -> return story
-        -- TODO used for debugging, remove
         ReqCloseVoting -> do
             resp <- respondInIO
             modifyStory_ $ \story -> case HashMap.elems (story^.storyCands) of
