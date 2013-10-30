@@ -11,7 +11,8 @@ var ww;
   };
 
   ww = {
-      debug: false,
+      debug: true,
+      host: 'ws://localhost:8000/ws',
       _onRespHandlers: {},
       _onRespGlobalHandlers: [],
       _onOpenHandlers: [],
@@ -23,7 +24,7 @@ var ww;
               user: null
           };
           st.sock.onmessage = function(event) {
-              console.log("wordwang: received `" + event.data + "'");
+              ww.debugLog("wordwang: received `" + event.data + "'");
               var resp = JSON.parse(event.data);
               applyHandlers(ww._onRespGlobalHandlers, resp);
               var tag = resp.tag;
@@ -58,16 +59,24 @@ var ww;
               req.auth = {authUser: st.user.id, authSecret: st.user.secret};
           }
           var payload = JSON.stringify(req);
-          console.log('wordwang: sending `' + payload + "'");
+          ww.debugLog('wordwang: sending `' + payload + "'");
           st.sock.send(payload);
       },
 
       create: function(st) {
-          ww.sendReq(st, 'create', {});
+          if (st.story === null) {
+              ww.sendReq(st, 'create', {});
+          } else {
+              ww.debugLog("`ww.create' but story already exists in state, ignoring");
+          }
       },
 
       join: function(st) {
-          ww.sendReq(st, 'join', {});
+          if (st.user === null) {
+              ww.sendReq(st, 'join', {});
+          } else {
+              ww.debugLog("`ww.join' but user already exists in state, ignoring");
+          }
       },
 
       candidate: function(st, block) {
@@ -103,16 +112,67 @@ var ww;
       },
 
       // ---------------------------------------------------------------
+      // Elements
+
+      createDiv: function() {
+          return document.getElementById('create');
+      },
+
+      storyDiv: function() {
+          return document.getElementById('story');
+      },
+
+      createForm: function() {
+          return document.getElementById('createForm');
+      },
+
+      // ---------------------------------------------------------------
       // Startup
 
       startup: function() {
-          var story = window.location.hash.substring(1);
-          var createDiv = document.getElementById('create');
-          var storyDiv   = document.getElementById('story');
-          if (story !== '') {
-              storyDiv.style.display = 'block';
+          window.wwSt = ww.newState(ww.host);
+
+          // Join on room creation
+          ww.onResp(window.wwSt, 'created', function(_) {
+              ww.createDiv().style.display = 'none';
+              ww.storyDiv().style.display = 'block';
+              ww.join(window.wwSt);
+          });
+
+          // Add the listener to create stories when the button is
+          // pressed
+          ww.createForm().addEventListener('submit', function() {
+              ww.create(window.wwSt);
+          });
+
+          ww.onOpen(window.wwSt, function(_) {
+              var story = window.location.hash.substring(1);
+              if (story !== '') {
+                  // Join existing one
+                  ww.storyDiv().style.display = 'block';
+                  window.wwSt.story = story;
+                  ww.join(window.wwSt);
+              } else {
+                  // Create it
+                  ww.createDiv().style.display = 'block';
+              }
+          });
+      },
+
+      // ---------------------------------------------------------------
+      // Utils
+
+      debugLog: function(msg) {
+          if (ww.debug) {
+              console.log(msg);
+          }
+      },
+
+      errorLog: function(msg) {
+          if (ww.debug) {
+              alert(msg);
           } else {
-              createDiv.style.display = 'block';
+              console.log(msg);
           }
       }
   };
