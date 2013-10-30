@@ -80,7 +80,10 @@ data Candidate = Candidate
 
 candidate :: UserId -> CandidateBody -> Candidate
 candidate uid body =
-    Candidate{_candUser = uid, _candBody = body, _candVotes = HashSet.empty}
+    Candidate{ _candUser  = uid
+             , _candBody  = body
+             , _candVotes = HashSet.singleton uid
+             }
 
 type StoryId = Id
 type Block = Text

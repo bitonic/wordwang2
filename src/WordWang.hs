@@ -11,6 +11,7 @@ import           Data.Functor ((<$>))
 import           Data.Monoid ((<>))
 
 import           Control.Monad.Trans (liftIO)
+import qualified Data.HashSet as HashSet
 import qualified Data.Text as Text
 
 import           Control.Lens
@@ -84,7 +85,15 @@ wordwang = do
                 case story^.storyCands^.at uid of
                     Just _ -> (story, return ())
                     Nothing -> ( story & storyCands.at uid ?~ cand
-                               , respond (respToThis (RespCandidate cand)) )
-        ReqVote voteUid -> do
-            uid <- authenticated
-            undefined
+                               , respond (respToAll (RespCandidate cand))
+                               )
+        ReqVote candUid -> do
+            voteUid <- authenticated
+            join $ modifyStory' $ \story -> do
+                case story^.storyCands^.at candUid of
+                    Just cand | not (HashSet.member voteUid (cand^.candVotes)) ->
+                        let cand' = cand & candVotes %~ HashSet.insert voteUid
+                        in  ( story & storyCands.at candUid ?~ cand'
+                            , respond (respToAll (RespVote candUid voteUid))
+                            )
+                    _ -> (story, return ())

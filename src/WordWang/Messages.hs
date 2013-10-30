@@ -68,7 +68,7 @@ data RespBody
     | RespCreated !StoryId
     | RespBlock !Block
     | RespCandidate !Candidate
-    | RespOk
+    | RespVote {- Candidate -} !UserId {- Vote -} !UserId
     deriving (Eq, Show)
 
 respToThis :: RespBody -> Resp
@@ -98,13 +98,17 @@ instance Aeson.ToJSON RespBody where
     toJSON (RespStory story) = tagObj "story" ["body" .= Aeson.toJSON story]
     toJSON (RespError err) = tagObj "error" ["message" .= Aeson.toJSON err]
     toJSON (RespJoined uid secret) =
-        tagObj "joined"
-               ["user" .= Aeson.toJSON uid, "secret" .= Aeson.toJSON secret]
+        tagObj "joined" [ "user"   .= Aeson.toJSON uid
+                        , "secret" .= Aeson.toJSON secret
+                        ]
     toJSON (RespCreated sid) = tagObj "created" ["story" .= Aeson.toJSON sid]
-    toJSON RespOk = tagObj "ok" []
     toJSON (RespBlock block) = tagObj "block" ["body" .= Aeson.toJSON block]
     toJSON (RespCandidate cand) =
         tagObj "candidate" ["body" .= Aeson.toJSON cand]
+    toJSON (RespVote candUid voteUid) =
+        tagObj "vote" [ "candidate" .= Aeson.toJSON candUid
+                      , "vote"      .= Aeson.toJSON voteUid
+                      ]
 
 ----------------------------------------------------------------------
 
