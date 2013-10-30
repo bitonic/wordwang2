@@ -1,3 +1,4 @@
+-- TODO do some logging
 module WordWang
     ( module WordWang.Messages
     , module WordWang.Monad
@@ -6,7 +7,6 @@ module WordWang
     ) where
 
 import           Control.Concurrent.MVar (modifyMVar, readMVar)
-import           Control.Monad (join)
 import           Data.Functor ((<$>))
 import           Data.Monoid ((<>))
 
@@ -25,7 +25,6 @@ import           WordWang.Objects
 
 internalError :: Text -> WWT IO a
 internalError err = do
-    -- TODO do some logging
     terminate (RespError ("internal error: " <> err))
 
 makeSecret :: WWT IO UserSecret
@@ -38,21 +37,19 @@ makeSecret = do
 modifyStory :: (Story -> IO (Story, a)) -> WWT IO a
 modifyStory f = do
     storyMv <- view wwStory
-    liftIO $ modifyMVar storyMv $ \(story, queue) -> do
-        (story', x) <- f story
-        return ((story', queue), x)
+    liftIO $ modifyMVar storyMv f
 
 modifyStory_ :: (Story -> IO Story) -> WWT IO ()
 modifyStory_ f = modifyStory $ \story -> (, ()) <$> f story
 
-modifyStory' :: (Story -> (Story, a)) -> WWT IO a
-modifyStory' f = modifyStory (return . f)
+-- modifyStory' :: (Story -> (Story, a)) -> WWT IO a
+-- modifyStory' f = modifyStory (return . f)
 
 modifyStory'_ :: (Story -> Story) -> WWT IO ()
 modifyStory'_ f = modifyStory_ (return . f)
 
 viewStory :: WWT IO Story
-viewStory = fst <$> (liftIO . readMVar =<< view wwStory)
+viewStory = liftIO . readMVar =<< view wwStory
 
 authenticated :: WWT IO UserId
 authenticated = do
@@ -81,19 +78,20 @@ wordwang = do
         ReqCandidate body -> do
             uid <- authenticated
             let cand = candidate uid body
-            join $ modifyStory' $ \story -> do
+            resp <- respondInIO
+            modifyStory_ $ \story -> do
                 case story^.storyCands^.at uid of
-                    Just _ -> (story, return ())
-                    Nothing -> ( story & storyCands.at uid ?~ cand
-                               , respond (respToAll (RespCandidate cand))
-                               )
+                    Just _ -> return story
+                    Nothing -> do
+                        resp (respToAll (RespCandidate cand))
+                        return (story & storyCands.at uid ?~ cand)
         ReqVote candUid -> do
             voteUid <- authenticated
-            join $ modifyStory' $ \story -> do
+            resp <- respondInIO
+            modifyStory_ $ \story -> do
                 case story^.storyCands^.at candUid of
-                    Just cand | not (HashSet.member voteUid (cand^.candVotes)) ->
+                    Just cand | not (HashSet.member voteUid (cand^.candVotes)) -> do
+                        resp (respToAll (RespVote candUid voteUid))
                         let cand' = cand & candVotes %~ HashSet.insert voteUid
-                        in  ( story & storyCands.at candUid ?~ cand'
-                            , respond (respToAll (RespVote candUid voteUid))
-                            )
-                    _ -> (story, return ())
+                        return (story & storyCands.at candUid ?~ cand')
+                    _ -> return story

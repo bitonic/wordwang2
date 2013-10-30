@@ -17,6 +17,7 @@ module WordWang.Monad
       -- * Operations
     , terminate
     , respond
+    , respondInIO
     ) where
 
 import           Control.Applicative (Applicative)
@@ -43,12 +44,13 @@ import           WordWang.Objects
 import           WordWang.Queue
 import           WordWang.Utils
 
-type Stories     = MVar (HashMap StoryId (MVar (Story, Queue RespBody)))
+type Stories     = MVar (HashMap StoryId (MVar Story, Queue RespBody))
 type Connections = MVar [WS.Connection]
 
 data WWState = WWState
     { _wwReq   :: Req
-    , _wwStory :: MVar (Story, Queue RespBody)
+    , _wwStory :: MVar Story
+    , _wwQueue :: Queue RespBody
     , _wwConn  :: WS.Connection
     }
 
@@ -83,12 +85,12 @@ serverWWT connsMv storiesMv m pending = do
             Right (_reqBody -> ReqCreate) -> do
                 sid <- modifyMVar storiesMv $ \stories -> do
                     story <- emptyStory
+                    storyMv <- newMVar story
                     let sid = story^.storyId
                     queue <- newQueue
                     -- TODO do something with this
                     queueTid <- forkIO (queueWorker connsMv queue)
-                    both <- newMVar (story, queue)
-                    return (stories & at sid ?~ both, sid)
+                    return (stories & at sid ?~ (storyMv, queue), sid)
                 sendJSON conn (RespCreated sid)
             Right req -> case req^.reqStory of
                 Nothing -> sendErr "no story in request"
@@ -96,9 +98,10 @@ serverWWT connsMv storiesMv m pending = do
                     stories <- readMVar storiesMv
                     case stories ^. at sid of
                         Nothing -> sendErr "story not found"
-                        Just story -> do
+                        Just (story, queue) -> do
                             let wwState = WWState { _wwReq   = req
                                                   , _wwStory = story
+                                                  , _wwQueue = queue
                                                   , _wwConn  = conn
                                                   }
                             res <- runWWT wwState m
@@ -112,12 +115,14 @@ terminate :: Monad m => RespBody -> WWT m a
 terminate = WWT . EitherT . return . Left
 
 respond :: MonadIO m => Resp -> WWT m ()
-respond resp =
-    case resp^.respRecipients of
-        All -> do
-            story <- view wwStory
-            queue <- snd <$> liftIO (readMVar story)
-            liftIO (writeQueue queue (resp^.respBody))
-        This -> do
-            conn <- view wwConn
-            liftIO (sendJSON conn (resp^.respBody))
+respond resp = liftIO . ($ resp) =<< respondInIO
+
+respondInIO :: MonadIO m => WWT m (Resp -> IO ())
+respondInIO = do
+    queue <- view wwQueue
+    conn <- view wwConn
+    return $ \resp -> case resp^.respRecipients of
+        All -> writeQueue queue (resp^.respBody)
+        -- TODO make this sending more async, since we do it while
+        -- taking a MVar
+        This -> sendJSON conn (resp^.respBody)
