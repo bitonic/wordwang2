@@ -7,20 +7,31 @@ module WordWang.Utils
     , parseNullary
     , parseUnary
     , sendJSON
+    , debugMsg
+    , errorMsg
+    , Only(..)
+    , Shown(..)
     ) where
 
 import           Data.Char (isUpper, toLower)
 import           Data.List (stripPrefix)
+import           Data.Monoid ((<>))
+import           System.IO (stderr)
 
+import           Control.Monad.Trans (MonadIO, liftIO)
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import           Data.Hashable (Hashable)
 import           Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.IO as TL
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import           Data.String.Combinators (quotes)
+import           Data.Text.Format (Format, Only(..), Shown(..), format)
+import           Data.Text.Format.Params (Params)
 import qualified Network.WebSockets as WS
 
 delPrefix :: String -> String -> String
@@ -74,5 +85,16 @@ parseUnary f field obj | Just x <- HashMap.lookup field obj = do
 parseUnary _ _ _ =
     fail "unary: expecting one field"
 
-sendJSON :: Aeson.ToJSON a => WS.Connection -> a -> IO ()
-sendJSON conn = WS.sendTextData conn . Aeson.encode
+sendJSON :: (Aeson.ToJSON a, Show a) => WS.Connection -> a -> IO ()
+sendJSON conn req = do
+    debugMsg "sending response `{}'" (Only (Shown req))
+    WS.sendTextData conn (Aeson.encode req)
+
+stderrMsg :: (MonadIO m, Params ps) => TL.Text -> Format -> ps -> m ()
+stderrMsg pre fmt pars = liftIO (TL.hPutStrLn stderr (pre <> format fmt pars))
+
+debugMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
+debugMsg = stderrMsg "[DEBUG] "
+
+errorMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
+errorMsg = stderrMsg "[ERROR] "

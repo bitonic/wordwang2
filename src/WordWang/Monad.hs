@@ -81,35 +81,39 @@ serverWWT connsMv storiesMv m pending = do
         reqm <- Aeson.eitherDecode <$> WS.receiveData conn
         case reqm of
             Left err ->
-                sendErr ("error decoding request: " <> T.pack err)
-            Right (_reqBody -> ReqCreate) -> do
-                sid <- modifyMVar storiesMv $ \stories -> do
-                    story <- emptyStory
-                    storyMv <- newMVar story
-                    let sid = story^.storyId
-                    queue <- newQueue
-                    -- TODO do something with this
-                    queueTid <- forkIO (queueWorker connsMv queue)
-                    return (stories & at sid ?~ (storyMv, queue), sid)
-                sendJSON conn (RespCreated sid)
-            Right req -> case req^.reqStory of
-                Nothing -> sendErr "no story in request"
-                Just sid -> do
-                    stories <- readMVar storiesMv
-                    case stories ^. at sid of
-                        Nothing -> sendErr "story not found"
-                        Just (story, queue) -> do
-                            let wwState = WWState { _wwReq   = req
-                                                  , _wwStory = story
-                                                  , _wwQueue = queue
-                                                  , _wwConn  = conn
-                                                  }
-                            res <- runWWT wwState m
-                            case res of
-                                Left err -> sendJSON conn err
-                                Right _  -> return ()
-      where
-        sendErr err = sendJSON conn (RespError err)
+                sendErr conn ("error decoding request: " <> T.pack err)
+            Right (req :: Req) -> do
+                debugMsg "received request `{}'" (Only (Shown req))
+                handleReq conn req
+
+    handleReq conn (_reqBody -> ReqCreate) = do
+        sid <- modifyMVar storiesMv $ \stories -> do
+            story <- emptyStory
+            storyMv <- newMVar story
+            let sid = story^.storyId
+            queue <- newQueue
+            -- TODO do something with this
+            queueTid <- forkIO (queueWorker connsMv queue)
+            return (stories & at sid ?~ (storyMv, queue), sid)
+        sendJSON conn (RespCreated sid)
+    handleReq conn req = case req^.reqStory of
+        Nothing -> sendErr conn "no story in request"
+        Just sid -> do
+            stories <- readMVar storiesMv
+            case stories ^. at sid of
+                Nothing -> sendErr conn "story not found"
+                Just (story, queue) -> do
+                    let wwState = WWState { _wwReq   = req
+                                          , _wwStory = story
+                                          , _wwQueue = queue
+                                          , _wwConn  = conn
+                                          }
+                    res <- runWWT wwState m
+                    case res of
+                        Left err -> sendJSON conn err
+                        Right _  -> return ()
+
+    sendErr conn err = sendJSON conn (RespError err)
 
 terminate :: Monad m => RespBody -> WWT m a
 terminate = WWT . EitherT . return . Left
