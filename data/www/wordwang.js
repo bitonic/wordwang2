@@ -27,7 +27,7 @@ ww = {
         var st = Object.create(WWState);
         st.sock = new WebSocket(ww.host);
         st.sock.onmessage = function(event) {
-            ww.debugLog("wordwang: received `" + event.data + "'");
+            ww.debugLog("received `" + event.data + "'");
             var resp = JSON.parse(event.data);
             applyHandlers(st._onRespGlobalHandlers, resp);
             var tag = resp.tag;
@@ -138,7 +138,7 @@ var WWState = {
             req.auth = {authUser: this.user.id, authSecret: this.user.secret};
         }
         var payload = JSON.stringify(req);
-        ww.debugLog('wordwang: sending `' + payload + "'");
+        ww.debugLog('sending `' + payload + "'");
         this.sock.send(payload);
     },
 
