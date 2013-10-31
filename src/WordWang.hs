@@ -105,7 +105,9 @@ wordwang = do
             modifyStory_ $ \story -> case HashMap.elems (story^.storyCands) of
                 [] -> return story -- TODO should we return an error?
                 cands@(_:_) -> do
-                    let cand = maximumBy (comparing (HashSet.size . _candVotes))
-                                         cands
-                    resp (respToAll (RespVotingClosed (cand^.candBlock)))
-                    return (story & storyCands .~ HashMap.empty)
+                    let cand  = maximumBy (comparing (HashSet.size . _candVotes))
+                                          cands
+                        block = cand^.candBlock
+                    resp (respToAll (RespVotingClosed block))
+                    let story' = story & storyCands .~ HashMap.empty
+                    return (story' & storyBlocks %~ (block :))

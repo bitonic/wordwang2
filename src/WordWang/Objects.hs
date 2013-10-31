@@ -25,7 +25,7 @@ module WordWang.Objects
     , storyId
     , storyUsers
     , storyCands
-    , storySoFar
+    , storyBlocks
     , emptyStory
     ) where
 
@@ -86,19 +86,19 @@ candidate uid block =
 type StoryId = Id
 type Block = Text
 data Story = Story
-    { _storyId    :: !StoryId
-    , _storyUsers :: !(HashMap UserId User)
-    , _storySoFar :: ![Block]
-    , _storyCands :: !(HashMap UserId Candidate)
+    { _storyId     :: !StoryId
+    , _storyUsers  :: !(HashMap UserId User)
+    , _storyBlocks :: ![Block]
+    , _storyCands  :: !(HashMap UserId Candidate)
     } deriving (Eq, Show)
 
 emptyStory :: IO Story
 emptyStory = do
     sid <- newId
-    return Story{ _storyId    = sid
-                , _storyUsers = HashMap.empty
-                , _storySoFar = []
-                , _storyCands = HashMap.empty
+    return Story{ _storyId     = sid
+                , _storyUsers  = HashMap.empty
+                , _storyBlocks = []
+                , _storyCands  = HashMap.empty
                 }
 
 ----------------------------------------------------------------------
