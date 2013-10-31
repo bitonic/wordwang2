@@ -63,6 +63,14 @@ ww = {
         return document.getElementById('createForm');
     },
 
+    candidateForm: function() {
+        return document.getElementById('candidateForm');
+    },
+
+    candidateBody: function() {
+        return document.getElementById('candidateBody');
+    },
+
     // -----------------------------------------------------------------
     // Startup
 
@@ -83,15 +91,19 @@ ww = {
             wwSt.create();
         });
 
+        // Add the listener to submit candidates
+        ww.candidateForm().addEventListener('submit', function() {
+            wwSt.candidate(ww.candidateBody().value);
+        });
+
+        // Join existing story, or create it
         wwSt.onOpen(function(_) {
             var story = window.location.hash.substring(1);
             if (story !== '') {
-                // Join existing one
                 ww.storyDiv().style.display = 'block';
                 wwSt.story = story;
                 wwSt.join();
             } else {
-                // Create it
                 ww.createDiv().style.display = 'block';
             }
         });
@@ -135,7 +147,7 @@ var WWState = {
             body : body
         };
         if (this.user !== null) {
-            req.auth = {authUser: this.user.id, authSecret: this.user.secret};
+            req.auth = {user: this.user.id, secret: this.user.secret};
         }
         var payload = JSON.stringify(req);
         ww.debugLog('sending `' + payload + "'");
