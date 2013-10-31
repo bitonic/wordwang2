@@ -22,6 +22,7 @@ var applyHandlers = function(handlers, x) {
 ww = {
     debug: true,
     host: 'ws://localhost:8000/ws',
+    _candidates: {},
 
     newState: function(host) {
         var st = Object.create(WWState);
@@ -71,6 +72,17 @@ ww = {
         return document.getElementById('candidateBody');
     },
 
+    candidates: function() {
+        return document.getElementById('candidates');
+    },
+
+    candidateEl: function(block) {
+        var span = document.createElement('span');
+        span.className = 'candidate';
+        span.appendChild(document.createTextNode(block));
+        return span;
+    },
+
     // -----------------------------------------------------------------
     // Startup
 
@@ -94,6 +106,13 @@ ww = {
         // Add the listener to submit candidates
         ww.candidateForm().addEventListener('submit', function() {
             wwSt.candidate(ww.candidateBody().value);
+        });
+
+        // Add listener to add candidates
+        wwSt.onResp('candidate', function(resp) {
+            var el = ww.candidateEl(resp.body.block);
+            ww._candidates[resp.body.user] = el;
+            ww.candidates().appendChild(el);
         });
 
         // Join existing story, or create it
