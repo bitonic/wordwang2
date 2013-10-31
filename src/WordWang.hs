@@ -45,11 +45,11 @@ modifyStory f = do
 modifyStory_ :: (Story -> IO Story) -> WWT IO ()
 modifyStory_ f = modifyStory $ \story -> (, ()) <$> f story
 
--- modifyStory' :: (Story -> (Story, a)) -> WWT IO a
--- modifyStory' f = modifyStory (return . f)
+modifyStory' :: (Story -> (Story, a)) -> WWT IO a
+modifyStory' f = modifyStory (return . f)
 
-modifyStory'_ :: (Story -> Story) -> WWT IO ()
-modifyStory'_ f = modifyStory_ (return . f)
+-- modifyStory'_ :: (Story -> Story) -> WWT IO ()
+-- modifyStory'_ f = modifyStory_ (return . f)
 
 viewStory :: WWT IO Story
 viewStory = liftIO . readMVar =<< view wwStory
@@ -76,8 +76,11 @@ wordwang = do
         ReqJoin -> do
             -- TODO should we check if the user is already authenticated?
             user <- liftIO . newUser =<< makeSecret
-            modifyStory'_ (& storyUsers.at (user^.userId) ?~ user)
-            terminate (RespJoined (user^.userId) (user^.userSecret))
+            story <- modifyStory' $ \story ->
+                let story' = story & storyUsers.at (user^.userId) ?~ user
+                in  (story', story')
+            respond (respToThis (RespJoined (user^.userId) (user^.userSecret)))
+            terminate (RespStory story)
         ReqCandidate body -> do
             uid <- authenticated
             let cand = candidate uid body
