@@ -74,6 +74,7 @@ ww = {
             ww.createDiv().style.display = 'none';
             ww.storyDiv().style.display = 'block';
             wwSt.join();
+            window.location = ww.storyUrl(wwSt.story);
         });
 
         // Add the listener to create stories when the button is
@@ -99,18 +100,19 @@ ww = {
     // -----------------------------------------------------------------
     // Utils
 
+    storyUrl: function(story) {
+        var url = window.location.href.split('#')[0];
+        return window.location = url + '#' + story;
+    },
+
     debugLog: function(msg) {
         if (ww.debug) {
-            console.log(msg);
+            console.log('[DEBUG] ' + msg);
         }
     },
 
     errorLog: function(msg) {
-        if (ww.debug) {
-            alert(msg);
-        } else {
-            console.log(msg);
-        }
+        console.log('[ERROR] ' + msg);
     }
 };
 
