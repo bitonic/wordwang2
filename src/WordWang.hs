@@ -86,28 +86,28 @@ wordwang = do
             let cand = candidate uid body
             resp <- respondInIO
             modifyStory_ $ \story -> do
-                case story^.storyCands^.at uid of
+                case story^.storyCandidates^.at uid of
                     Just _ -> return story
                     Nothing -> do
                         resp (respToAll (RespCandidate cand))
-                        return (story & storyCands.at uid ?~ cand)
+                        return (story & storyCandidates.at uid ?~ cand)
         ReqVote candUid -> do
             voteUid <- authenticated
             resp <- respondInIO
-            modifyStory_ $ \story -> case story^.storyCands^.at candUid of
+            modifyStory_ $ \story -> case story^.storyCandidates^.at candUid of
                 Just cand | not (HashSet.member voteUid (cand^.candVotes)) -> do
                     resp (respToAll (RespVote candUid voteUid))
                     let cand' = cand & candVotes %~ HashSet.insert voteUid
-                    return (story & storyCands.at candUid ?~ cand')
+                    return (story & storyCandidates.at candUid ?~ cand')
                 _ -> return story
         ReqCloseVoting -> do
             resp <- respondInIO
-            modifyStory_ $ \story -> case HashMap.elems (story^.storyCands) of
+            modifyStory_ $ \story -> case HashMap.elems (story^.storyCandidates) of
                 [] -> return story -- TODO should we return an error?
                 cands@(_:_) -> do
                     let cand  = maximumBy (comparing (HashSet.size . _candVotes))
                                           cands
                         block = cand^.candBlock
                     resp (respToAll (RespVotingClosed block))
-                    let story' = story & storyCands .~ HashMap.empty
+                    let story' = story & storyCandidates .~ HashMap.empty
                     return (story' & storyBlocks %~ (block :))
