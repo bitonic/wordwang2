@@ -22,32 +22,6 @@ var applyHandlers = function(handlers, x) {
 ww = {
     debug: true,
     host: 'ws://localhost:8000/ws',
-    _candidates: {},
-
-    newState: function(host) {
-        var st = Object.create(WWState);
-        st.sock = new WebSocket(ww.host);
-        st.sock.onmessage = function(event) {
-            ww.debugLog("received `" + event.data + "'");
-            var resp = JSON.parse(event.data);
-            applyHandlers(st._onRespGlobalHandlers, resp);
-            var tag = resp.tag;
-            if (!(tag in st._onRespHandlers)) {
-                st._onRespHandlers[tag] = [];
-            }
-            applyHandlers(st._onRespHandlers[tag], resp);
-        };
-        st.sock.onopen = function(event) {
-            applyHandlers(st._onOpenHandlers, event);
-        };
-        st.onResp('created', function(resp) {
-            st.story = resp.story;
-        });
-        st.onResp('joined', function(resp) {
-            st.user = {id: resp.user, secret: resp.secret};
-        });
-        return st;
-    },
 
     // -----------------------------------------------------------------
     // Elements
@@ -87,14 +61,20 @@ ww = {
     // Startup
 
     startup: function() {
-        wwSt = ww.newState(ww.host);
+        wwSt = WWState.new(ww.host);
 
         // Join on room creation
         wwSt.onResp('created', function(_) {
             ww.createDiv().style.display = 'none';
             ww.storyDiv().style.display = 'block';
             wwSt.join();
-            window.location = ww.storyUrl(wwSt.story);
+            window.location = ww.storyUrl(wwSt.storyId);
+        });
+
+        // Add listener to add candidates
+        wwSt.onResp('candidate', function(resp) {
+            var el = ww.candidateEl(resp.body.block);
+            ww.candidates().appendChild(el);
         });
 
         // Add the listener to create stories when the button is
@@ -108,19 +88,12 @@ ww = {
             wwSt.candidate(ww.candidateBody().value);
         });
 
-        // Add listener to add candidates
-        wwSt.onResp('candidate', function(resp) {
-            var el = ww.candidateEl(resp.body.block);
-            ww._candidates[resp.body.user] = el;
-            ww.candidates().appendChild(el);
-        });
-
         // Join existing story, or create it
         wwSt.onOpen(function(_) {
             var story = window.location.hash.substring(1);
             if (story !== '') {
                 ww.storyDiv().style.display = 'block';
-                wwSt.story = story;
+                wwSt.storyId = story;
                 wwSt.join();
             } else {
                 ww.createDiv().style.display = 'block';
@@ -149,6 +122,7 @@ ww = {
 
 var WWState = {
     sock: null,
+    storyId: null,
     story: null,
     user: null,
     _onRespHandlers: {},
@@ -161,7 +135,7 @@ var WWState = {
     sendReq: function(tag, body) {
         body.tag = tag;
         var req = {
-            story: this.story,
+            story: this.storyId,
             auth : null,
             body : body
         };
@@ -174,7 +148,7 @@ var WWState = {
     },
 
     create: function() {
-        if (this.story === null) {
+        if (this.storyId === null) {
             this.sendReq('create', {});
         } else {
             ww.debugLog("`WWState.create' but story already exists in state, ignoring");
@@ -219,6 +193,55 @@ var WWState = {
             handlers = this._onRespHandlers[tag];
         }
         handlers.push(f);
+    },
+
+    // -----------------------------------------------------------------
+    // Static methods
+
+    new: function(host) {
+        var st = Object.create(WWState);
+        st.sock = new WebSocket(ww.host);
+
+        // Main handler setup
+        st.sock.onmessage = function(event) {
+            ww.debugLog("received `" + event.data + "'");
+            var resp = JSON.parse(event.data);
+            applyHandlers(st._onRespGlobalHandlers, resp);
+            var tag = resp.tag;
+            if (!(tag in st._onRespHandlers)) {
+                st._onRespHandlers[tag] = [];
+            }
+            applyHandlers(st._onRespHandlers[tag], resp);
+        };
+        st.sock.onopen = function(event) {
+            applyHandlers(st._onOpenHandlers, event);
+        };
+
+        // Base handlers
+        st.onResp('joined', function(resp) {
+            st.user = {id: resp.user, secret: resp.secret};
+        });
+        st.onResp('created', function(resp) {
+            st.storyId = resp.story;
+        });
+        st.onResp('story', function(resp) {
+            st.story = resp.body;
+        });
+        st.onResp('votingClosed', function(resp) {
+            st.story.candidates = {},
+            st.story.blocks.unshift(resp.block);
+        });
+        st.onResp('candidate', function(resp) {
+            st.story.candidates[resp.body.user] = resp.body;
+        });
+        st.onResp('vote', function(resp) {
+            var votes = st.story.candidates[resp.user].votes;
+            // TODO Should I check here?
+            if (!(resp.vote in votes)) {
+                votes.push(resp.vote);
+            }
+        });
+        return st;
     }
 };
 
