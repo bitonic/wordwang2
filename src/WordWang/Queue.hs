@@ -1,19 +1,29 @@
--- TODO write something faster than a Chan
-module WordWang.Queue (Queue, newQueue, writeQueue, flushQueue) where
+module WordWang.Queue
+    ( Queue
+    , newQueue
+    , writeQueue
+    , flushQueue
+    ) where
 
+import           Control.Applicative ((<*>))
+import           Control.Monad (void)
 import           Data.Functor ((<$>))
-import           Control.Concurrent.Chan (Chan, newChan, writeChan, readChan)
 
+import           Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, modifyMVar_, tryPutMVar, withMVar, takeMVar, modifyMVar)
 
-newtype Queue a = Queue (Chan a)
+data Queue a = Queue (MVar [a]) (MVar ()) (MVar ())
 
 -- | Build and returns a new instance of 'Queue'
 newQueue :: IO (Queue a)
-newQueue = Queue <$> newChan
+newQueue = Queue <$> newMVar [] <*> newEmptyMVar <*> newMVar ()
 
 -- | Write a value to a 'Queue'.
 writeQueue :: Queue a -> a -> IO ()
-writeQueue (Queue chan) x = writeChan chan x
+writeQueue (Queue queue signal _lock) x = do
+    modifyMVar_ queue (return . (x :))
+    void (tryPutMVar signal ())
 
 flushQueue :: Queue a -> IO [a]
-flushQueue (Queue chan) = return <$> readChan chan
+flushQueue (Queue queue signal lock) = withMVar lock $ \_ -> do
+    takeMVar signal
+    modifyMVar queue (\msgs -> return ([], reverse msgs))
