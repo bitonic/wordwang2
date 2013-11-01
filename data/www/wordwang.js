@@ -4,14 +4,6 @@ var wwSt;
 (function() {
 'use strict';
 
-if (typeof Object.create !== 'function') {
-    Object.create = function (o) {
-        function F() {}
-        F.prototype = o;
-        return new F();
-    };
-}
-
 var applyHandlers = function(handlers, x) {
     var i;
     for (i = 0; i < handlers.length; i++) {
@@ -61,7 +53,7 @@ ww = {
     // Startup
 
     startup: function() {
-        wwSt = WWState.new(ww.host);
+        wwSt = new WWState(ww.host);
 
         // Join on room creation
         wwSt.onResp('created', function(_) {
@@ -120,7 +112,52 @@ ww = {
     }
 };
 
-var WWState = {
+function WWState(host) {
+    var st = this;
+    st.sock = new WebSocket(ww.host);
+
+    // Main handler setup
+    st.sock.onmessage = function(event) {
+        ww.debugLog("received `" + event.data + "'");
+        var resp = JSON.parse(event.data);
+        applyHandlers(st._onRespGlobalHandlers, resp);
+        var tag = resp.tag;
+        if (!(tag in st._onRespHandlers)) {
+            st._onRespHandlers[tag] = [];
+        }
+        applyHandlers(st._onRespHandlers[tag], resp);
+    };
+    st.sock.onopen = function(event) {
+        applyHandlers(st._onOpenHandlers, event);
+    };
+    
+    // Base handlers
+    st.onResp('joined', function(resp) {
+        st.user = {id: resp.user, secret: resp.secret};
+    });
+    st.onResp('created', function(resp) {
+        st.storyId = resp.story;
+    });
+    st.onResp('story', function(resp) {
+        st.story = resp.body;
+    });
+    st.onResp('votingClosed', function(resp) {
+        st.story.candidates = {},
+        st.story.blocks.unshift(resp.block);
+    });
+    st.onResp('candidate', function(resp) {
+        st.story.candidates[resp.body.user] = resp.body;
+    });
+    st.onResp('vote', function(resp) {
+        var votes = st.story.candidates[resp.user].votes;
+        // TODO Should I check here?
+        if (!(resp.vote in votes)) {
+            votes.push(resp.vote);
+        }
+    });
+}
+
+WWState.prototype = {
     sock: null,
     storyId: null,
     story: null,
@@ -129,7 +166,7 @@ var WWState = {
     _onRespGlobalHandlers: [],
     _onOpenHandlers: [],
 
-    // -----------------------------------------------------------------
+    // -------------------------------------------------------------
     // Requests
 
     sendReq: function(tag, body) {
@@ -175,7 +212,7 @@ var WWState = {
         this.sendReq('closeVoting', {});
     },
 
-    // -----------------------------------------------------------------
+    // -------------------------------------------------------------
     // Events
 
     onOpen: function(f) {
@@ -193,55 +230,6 @@ var WWState = {
             handlers = this._onRespHandlers[tag];
         }
         handlers.push(f);
-    },
-
-    // -----------------------------------------------------------------
-    // Static methods
-
-    new: function(host) {
-        var st = Object.create(WWState);
-        st.sock = new WebSocket(ww.host);
-
-        // Main handler setup
-        st.sock.onmessage = function(event) {
-            ww.debugLog("received `" + event.data + "'");
-            var resp = JSON.parse(event.data);
-            applyHandlers(st._onRespGlobalHandlers, resp);
-            var tag = resp.tag;
-            if (!(tag in st._onRespHandlers)) {
-                st._onRespHandlers[tag] = [];
-            }
-            applyHandlers(st._onRespHandlers[tag], resp);
-        };
-        st.sock.onopen = function(event) {
-            applyHandlers(st._onOpenHandlers, event);
-        };
-
-        // Base handlers
-        st.onResp('joined', function(resp) {
-            st.user = {id: resp.user, secret: resp.secret};
-        });
-        st.onResp('created', function(resp) {
-            st.storyId = resp.story;
-        });
-        st.onResp('story', function(resp) {
-            st.story = resp.body;
-        });
-        st.onResp('votingClosed', function(resp) {
-            st.story.candidates = {},
-            st.story.blocks.unshift(resp.block);
-        });
-        st.onResp('candidate', function(resp) {
-            st.story.candidates[resp.body.user] = resp.body;
-        });
-        st.onResp('vote', function(resp) {
-            var votes = st.story.candidates[resp.user].votes;
-            // TODO Should I check here?
-            if (!(resp.vote in votes)) {
-                votes.push(resp.vote);
-            }
-        });
-        return st;
     }
 };
 
