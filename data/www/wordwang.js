@@ -120,7 +120,6 @@ function WWState(host) {
     st.sock.onmessage = function(event) {
         ww.debugLog("received `" + event.data + "'");
         var resp = JSON.parse(event.data);
-        applyHandlers(st._onRespGlobalHandlers, resp);
         var tag = resp.tag;
         if (!(tag in st._onRespHandlers)) {
             st._onRespHandlers[tag] = [];
@@ -163,7 +162,6 @@ WWState.prototype = {
     story: null,
     user: null,
     _onRespHandlers: {},
-    _onRespGlobalHandlers: [],
     _onOpenHandlers: [],
 
     // -------------------------------------------------------------
@@ -220,16 +218,10 @@ WWState.prototype = {
     },
 
     onResp: function(tag, f) {
-        var handlers;
-        if (tag === null) {
-            handlers = this._onRespGlobalHandlers;
-        } else {
-            if (!(tag in this._onRespHandlers)) {
-                this._onRespHandlers[tag] = [];
-            }
-            handlers = this._onRespHandlers[tag];
+        if (!(tag in this._onRespHandlers)) {
+            this._onRespHandlers[tag] = [];
         }
-        handlers.push(f);
+        this._onRespHandlers[tag].push(f);
     }
 };
 
