@@ -74,7 +74,7 @@ function WWState(host) {
         st.story.candidates[resp.body.user] = resp.body;
     });
     st.onResp('vote', function(resp) {
-        var votes = st.story.candidates[resp.user].votes;
+        var votes = st.story.candidates[resp.candidate].votes;
         // TODO Should I check here?
         if (!(resp.vote in votes)) {
             votes.push(resp.vote);

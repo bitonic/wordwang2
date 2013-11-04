@@ -12,7 +12,7 @@ wwApp.controller('WWCtrl', function WWCtrl($scope) {
         id: null,
         users: {},
         blocks: [],
-        candidates: {},
+        candidates: {}
     };
 
     // Keep the two the same
@@ -31,7 +31,7 @@ wwApp.controller('WWCtrl', function WWCtrl($scope) {
 
     $scope.create = function() {
         wwState.create();
-    }
+    };
 
     $scope.candidate = function() {
         wwState.candidate($scope.blockInput);
@@ -39,6 +39,10 @@ wwApp.controller('WWCtrl', function WWCtrl($scope) {
 
     $scope.join = function() {
         wwState.join();
+    };
+
+    $scope.vote = function(user) {
+        wwState.vote(user);
     };
 
     // TODO there's probably a way to get this...

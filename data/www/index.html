@@ -20,8 +20,8 @@
         <button ng-click="candidate()">GO!</button>
       </form>
       <div id="candidates">
-        <span class="candidate" ng-repeat="candidate in story.candidates">
-          {{candidate.block}}
+        <span class="candidate" ng-repeat="candidate in story.candidates" ng-click="vote(candidate.user)">
+          <a href="" class="candidateBlock" ng-click="vote(candidate.user)">{{candidate.block}} ({{candidate.votes.length}})</a>
         </span>
       </div>
       <div id="blocks">
