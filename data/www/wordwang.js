@@ -129,11 +129,11 @@ WWState.prototype = {
         this.sendReq('candidate', {block: block});
     },
 
-    vote: function(st, user) {
+    vote: function(user) {
         this.sendReq('vote', {user: user});
     },
 
-    closeVoting: function(st) {
+    closeVoting: function() {
         this.sendReq('closeVoting', {});
     },
 
