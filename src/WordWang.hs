@@ -112,4 +112,4 @@ wordwang = do
                         block = cand^.candBlock
                     resp (respToAll (RespVotingClosed block))
                     let story' = story & storyCandidates .~ HashMap.empty
-                    return (story' & storyBlocks %~ (block :))
+                    return (story' & storyBlocks %~ (++ [block]))

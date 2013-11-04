@@ -54,6 +54,9 @@ function WWState(host, onopen) {
         applyHandlers(st._onRespHandlers[tag], resp);
         applyHandlers(st._onRespGlobalHandlers, resp);
     };
+    st.sock.onclose = function(event) {
+        ww.debugLog("connection closed!");
+    };
     
     // Base handlers
     st.onResp('joined', function(resp) {
@@ -67,7 +70,7 @@ function WWState(host, onopen) {
     });
     st.onResp('votingClosed', function(resp) {
         st.story.candidates = {},
-        st.story.blocks.unshift(resp.block);
+        st.story.blocks.push(resp.block);
     });
     st.onResp('candidate', function(resp) {
         st.story.candidates[resp.body.user] = resp.body;
