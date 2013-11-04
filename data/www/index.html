@@ -10,28 +10,29 @@
   </head>
   <body ng-controller="WWCtrl">
     <div id="create">
-      <form id="createForm">
+      <form>
         <button ng-click="create()">Create Story</button>
       </form>
     </div>
     <div id="story">
-      <form id="candidateForm">
+      <form>
         <input type="text" ng-model="blockInput">
         <button ng-click="candidate()">GO!</button>
       </form>
-      <div id="candidates">
-        <span class="candidate" ng-repeat="candidate in story.candidates" ng-click="vote(candidate.user)">
-          <a href="" class="candidateBlock" ng-click="vote(candidate.user)">{{candidate.block}} ({{candidate.votes.length}})</a>
+      <div>
+        <span ng-repeat="candidate in story.candidates" ng-click="vote(candidate.user)">
+          <a href="" ng-click="vote(candidate.user)">{{candidate.block}} ({{candidate.votes.length}})</a>
         </span>
       </div>
-      <div id="blocks">
-        <span class="block" ng-repeat="block in story.blocks">
+      <div>
+        <span ng-repeat="block in story.blocks">
           {{block}}
         </span>
       </div>
       <!-- TODO remove this, join automatically -->
-      <form id="joinForm">
+      <form>
         <button ng-click="join()">Join</button>
+        <button ng-click="getStory()">Get story</button>
       </form>
     </div>
   </body>

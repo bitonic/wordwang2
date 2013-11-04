@@ -137,6 +137,10 @@ WWState.prototype = {
         this.sendReq('closeVoting', {});
     },
 
+    getStory: function() {
+        this.sendReq('story', {});
+    },
+
     // -------------------------------------------------------------
     // Events
 

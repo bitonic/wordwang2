@@ -15,20 +15,6 @@ wwApp.controller('WWCtrl', function WWCtrl($scope) {
         candidates: {}
     };
 
-    // Keep the two the same
-    wwState.onResp(null, function(_) {
-        $scope.story = wwState.story;
-        $scope.$digest();
-    });
-
-    // Join on room creation
-    wwState.onResp('created', function(_) {
-        createDiv.style.display = 'none';
-        storyDiv.style.display = 'block';
-        wwState.join();
-        window.location = ww.storyUrl(wwState.storyId);
-    });
-
     $scope.create = function() {
         wwState.create();
     };
@@ -45,6 +31,25 @@ wwApp.controller('WWCtrl', function WWCtrl($scope) {
         wwState.vote(user);
     };
 
+    $scope.getStory = function() {
+        wwState.getStory();
+    };
+
+    // Keep the two the same
+    wwState.onResp(null, function(_) {
+        $scope.story = wwState.story;
+        $scope.$digest();
+    });
+
+    // Join on room creation
+    wwState.onResp('created', function(_) {
+        createDiv.style.display = 'none';
+        storyDiv.style.display = 'block';
+        wwState.getStory();
+        wwState.join();
+        window.location = ww.storyUrl(wwState.storyId);
+    });
+
     // TODO there's probably a way to get this...
     var createDiv = document.getElementById('create');
     var storyDiv = document.getElementById('story');
@@ -53,7 +58,7 @@ wwApp.controller('WWCtrl', function WWCtrl($scope) {
         createDiv.style.display = 'block';
     } else {
         storyDiv.style.display = 'block';
-        var storyId = ww.getHash();
+        storyId = ww.getHash();
         wwState.storyId = storyId;
     }
 });
