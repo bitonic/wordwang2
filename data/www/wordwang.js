@@ -1,100 +1,24 @@
-var ww;
-var wwSt;
-
-(function() {
-'use strict';
-
-var applyHandlers = function(handlers, x) {
+function applyHandlers(handlers, x) {
     var i;
     for (i = 0; i < handlers.length; i++) {
         handlers[i](x);
     }
 };
 
-ww = {
+var ww = {
     debug: true,
-    host: 'ws://localhost:8000/ws',
-
-    // -----------------------------------------------------------------
-    // Elements
-
-    createDiv: function() {
-        return document.getElementById('create');
-    },
-
-    storyDiv: function() {
-        return document.getElementById('story');
-    },
-
-    createForm: function() {
-        return document.getElementById('createForm');
-    },
-
-    candidateForm: function() {
-        return document.getElementById('candidateForm');
-    },
-
-    candidateBody: function() {
-        return document.getElementById('candidateBody');
-    },
-
-    candidates: function() {
-        return document.getElementById('candidates');
-    },
-
-    candidateEl: function(block) {
-        var span = document.createElement('span');
-        span.className = 'candidate';
-        span.appendChild(document.createTextNode(block));
-        return span;
-    },
-
-    // -----------------------------------------------------------------
-    // Startup
-
-    startup: function() {
-        wwSt = new WWState(ww.host);
-
-        // Join on room creation
-        wwSt.onResp('created', function(_) {
-            ww.createDiv().style.display = 'none';
-            ww.storyDiv().style.display = 'block';
-            wwSt.join();
-            window.location = ww.storyUrl(wwSt.storyId);
-        });
-
-        // Add listener to add candidates
-        wwSt.onResp('candidate', function(resp) {
-            var el = ww.candidateEl(resp.body.block);
-            ww.candidates().appendChild(el);
-        });
-
-        // Add the listener to create stories when the button is
-        // pressed
-        ww.createForm().addEventListener('submit', function() {
-            wwSt.create();
-        });
-
-        // Add the listener to submit candidates
-        ww.candidateForm().addEventListener('submit', function() {
-            wwSt.candidate(ww.candidateBody().value);
-        });
-
-        // Join existing story, or create it
-        wwSt.onOpen(function(_) {
-            var story = window.location.hash.substring(1);
-            if (story !== '') {
-                ww.storyDiv().style.display = 'block';
-                wwSt.storyId = story;
-                wwSt.join();
-            } else {
-                ww.createDiv().style.display = 'block';
-            }
-        });
-    },
+    host: 'ws://localhost:8888/ws',
 
     // -----------------------------------------------------------------
     // Utils
+
+    getHash: function() {
+        var hash = window.location.hash.substring(1);
+        if (hash === '') {
+            hash = null;
+        }
+        return hash;
+    },
 
     storyUrl: function(story) {
         var url = window.location.href.split('#')[0];
@@ -125,8 +49,10 @@ function WWState(host) {
             st._onRespHandlers[tag] = [];
         }
         applyHandlers(st._onRespHandlers[tag], resp);
+        applyHandlers(st._onRespGlobalHandlers, resp);
     };
     st.sock.onopen = function(event) {
+        ww.debugLog("opened connection");
         applyHandlers(st._onOpenHandlers, event);
     };
     
@@ -162,6 +88,7 @@ WWState.prototype = {
     story: null,
     user: null,
     _onRespHandlers: {},
+    _onRespGlobalHandlers: [],
     _onOpenHandlers: [],
 
     // -------------------------------------------------------------
@@ -218,11 +145,13 @@ WWState.prototype = {
     },
 
     onResp: function(tag, f) {
-        if (!(tag in this._onRespHandlers)) {
-            this._onRespHandlers[tag] = [];
+        if (tag === null) {
+            this._onRespGlobalHandlers.push(f);
+        } else {
+            if (!(tag in this._onRespHandlers)) {
+                this._onRespHandlers[tag] = [];
+            }
+            this._onRespHandlers[tag].push(f);
         }
-        this._onRespHandlers[tag].push(f);
     }
 };
-
-})();

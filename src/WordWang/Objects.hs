@@ -49,8 +49,14 @@ import qualified Data.UUID.V4 as UUID
 
 import           WordWang.Utils
 
-newtype Id = Id { unId :: UUID.UUID }
-    deriving (Eq, Ord, Show)
+newtype Id = Id {unId :: UUID.UUID}
+    deriving (Eq, Ord)
+
+instance Show Id where
+    showsPrec n = showsPrec n . unId
+
+instance Hashable Id where
+    hashWithSalt salt = hashWithSalt salt . UUID.toASCIIBytes . unId
 
 newId :: IO Id
 newId = Id <$> UUID.nextRandom
@@ -112,9 +118,6 @@ instance Aeson.FromJSON Id where
         case UUID.fromASCIIBytes bytes of
             Nothing   -> fail "Error decoding ASCII bytes to UUID"
             Just uuid -> return (Id uuid)
-
-instance Hashable Id where
-    hashWithSalt salt = hashWithSalt salt . UUID.toASCIIBytes . unId
 
 instance Aeson.ToJSON v => Aeson.ToJSON (HashMap Id v) where
     toJSON = Aeson.Object

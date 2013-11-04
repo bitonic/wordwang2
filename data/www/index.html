@@ -1,29 +1,37 @@
 <!DOCTYPE html>
-<html ng-app>
+<html ng-app="wordwang">
   <head>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     <title>W O R D W A N G ! ! !</title>
     <link rel="stylesheet" type="text/css" href="style.css">
+    <script src="/angular.js"></script>
     <script src="/wordwang.js"></script>
+    <script src="/wordwang-ng.js"></script>
   </head>
-  <body>
+  <body ng-controller="WWCtrl">
     <div id="create">
-      <form id="createForm" action="javascript:void(0);">
-        <input type="submit" value="Create story">
+      <form id="createForm">
+        <button ng-click="create()">Create Story</button>
       </form>
     </div>
     <div id="story">
-      <form id="candidateForm" action="javascript:void(0);">
-        <input type="text" id="candidateBody">
-        <input type="submit" value="GO!">
+      <form id="candidateForm">
+        <input type="text" ng-model="blockInput">
+        <button ng-click="candidate()">GO!</button>
       </form>
       <div id="candidates">
+        <span class="candidate" ng-repeat="candidate in story.candidates">
+          {{candidate.block}}
+        </span>
       </div>
       <div id="blocks">
+        <span class="block" ng-repeat="block in story.blocks">
+          {{block}}
+        </span>
       </div>
+      <form id="joinForm">
+        <button ng-click="join()">Join</button>
+      </form>
     </div>
-    <script>
-      ww.startup();
-    </script>
   </body>
 </html>
