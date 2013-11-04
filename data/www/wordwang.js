@@ -36,9 +36,12 @@ var ww = {
     }
 };
 
-function WWState(host) {
+function WWState(host, onopen) {
     var st = this;
     st.sock = new WebSocket(ww.host);
+    if (onopen !== null) {
+        st.sock.onopen = onopen;
+    }
 
     // Main handler setup
     st.sock.onmessage = function(event) {
@@ -50,10 +53,6 @@ function WWState(host) {
         }
         applyHandlers(st._onRespHandlers[tag], resp);
         applyHandlers(st._onRespGlobalHandlers, resp);
-    };
-    st.sock.onopen = function(event) {
-        ww.debugLog("opened connection");
-        applyHandlers(st._onOpenHandlers, event);
     };
     
     // Base handlers
@@ -89,7 +88,6 @@ WWState.prototype = {
     user: null,
     _onRespHandlers: {},
     _onRespGlobalHandlers: [],
-    _onOpenHandlers: [],
     _lastReq: null,
     _lastResp: null,
 
@@ -141,7 +139,7 @@ WWState.prototype = {
     },
 
     getStory: function() {
-        this.sendReq('', {});
+        this.sendReq('story', {});
     },
 
     // -------------------------------------------------------------

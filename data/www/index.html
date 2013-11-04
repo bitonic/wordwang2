@@ -10,9 +10,7 @@
   </head>
   <body ng-controller="WWCtrl">
     <div id="create">
-      <form>
-        <button ng-click="create()">Create Story</button>
-      </form>
+      <button ng-click="create()">Create Story</button>
     </div>
     <div id="story">
       <form>
@@ -30,10 +28,8 @@
         </span>
       </div>
       <!-- TODO remove this, join automatically -->
-      <form>
-        <button ng-click="join()">Join</button>
-        <button ng-click="getStory()">Get story</button>
-      </form>
+      <button ng-click="join()">Join</button>
+      <button ng-click="closeVoting()">Close voting</button>
     </div>
   </body>
 </html>
