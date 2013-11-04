@@ -90,6 +90,8 @@ WWState.prototype = {
     _onRespHandlers: {},
     _onRespGlobalHandlers: [],
     _onOpenHandlers: [],
+    _lastReq: null,
+    _lastResp: null,
 
     // -------------------------------------------------------------
     // Requests
@@ -107,6 +109,7 @@ WWState.prototype = {
         var payload = JSON.stringify(req);
         ww.debugLog('sending `' + payload + "'");
         this.sock.send(payload);
+        this._lastReq = req;
     },
 
     create: function() {
@@ -138,7 +141,7 @@ WWState.prototype = {
     },
 
     getStory: function() {
-        this.sendReq('story', {});
+        this.sendReq('', {});
     },
 
     // -------------------------------------------------------------
