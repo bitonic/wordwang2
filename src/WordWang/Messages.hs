@@ -16,12 +16,19 @@ module WordWang.Messages
     , RespError
     , RespRecipients(..)
     , RespBody(..)
+    , respStory
     , respToThis
     , respToAll
     , respError
+    , UserStory
+    , uStoryBlocks
+    , uStoryCandidates
+    , uStoryId
     ) where
 
-import           Control.Lens (makeLenses)
+import           Data.HashMap.Strict (HashMap)
+
+import           Control.Lens (makeLenses, (^.))
 import           Data.Aeson ((.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson
@@ -33,11 +40,6 @@ data Req = Req
     { _reqStory :: !(Maybe StoryId)
     , _reqAuth  :: !(Maybe ReqAuth)
     , _reqBody  :: !ReqBody
-    } deriving (Eq, Show)
-
-data ReqStory = ReqStory
-    { _reqStoryStory :: !Story
-    , _reqStoryAuth  :: !(Maybe ReqAuth)
     } deriving (Eq, Show)
 
 data ReqAuth = ReqAuth
@@ -63,7 +65,7 @@ data Resp = Resp
 
 type RespError = Text
 data RespBody
-    = RespStory !Story
+    = RespStory !UserStory
     | RespError !RespError
     | RespJoined !UserId !UserSecret
     | RespCreated !StoryId
@@ -71,6 +73,19 @@ data RespBody
     | RespCandidate !Candidate
     | RespVote {- Candidate -} !UserId {- Vote -} !UserId
     deriving (Eq, Show)
+
+data UserStory = UserStory
+    { _uStoryId         :: !StoryId
+    , _uStoryBlocks     :: ![Block]
+    , _uStoryCandidates :: !(HashMap UserId Candidate)
+    } deriving (Eq, Show)
+
+respStory :: Story -> RespBody
+respStory story =
+    RespStory UserStory{ _uStoryId         = story^.storyId
+                       , _uStoryBlocks     = story^.storyBlocks
+                       , _uStoryCandidates = story^.storyCandidates
+                       }
 
 respToThis :: RespBody -> Resp
 respToThis body = Resp{_respRecipients = This, _respBody = body}
@@ -84,7 +99,6 @@ respError err = respToThis (RespError err)
 ----------------------------------------------------------------------
 
 Aeson.deriveFromJSON (wwJSON $ delPrefix "_req")      ''Req
-Aeson.deriveFromJSON (wwJSON $ delPrefix "_reqStory") ''ReqStory
 Aeson.deriveFromJSON (wwJSON $ delPrefix "_reqAuth")  ''ReqAuth
 
 instance Aeson.FromJSON ReqBody where
@@ -95,6 +109,8 @@ instance Aeson.FromJSON ReqBody where
         , ("vote",        parseUnary   ReqVote      "user")
         , ("closeVoting", parseNullary ReqCloseVoting)
         ]
+
+Aeson.deriveToJSON (wwJSON $ delPrefix "_uStory") ''UserStory
 
 instance Aeson.ToJSON RespBody where
     toJSON (RespStory story) = tagObj "story" ["body" .= Aeson.toJSON story]
@@ -118,3 +134,4 @@ instance Aeson.ToJSON RespBody where
 makeLenses ''Req
 makeLenses ''ReqAuth
 makeLenses ''Resp
+makeLenses ''UserStory

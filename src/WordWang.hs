@@ -80,7 +80,7 @@ wordwang = do
                 let story' = story & storyUsers.at (user^.userId) ?~ user
                 in  (story', story')
             respond (respToThis (RespJoined (user^.userId) (user^.userSecret)))
-            terminate (RespStory story)
+            terminate (respStory story)
         ReqCandidate body -> do
             uid <- authenticated
             let cand = candidate uid body

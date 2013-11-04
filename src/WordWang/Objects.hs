@@ -135,7 +135,6 @@ instance Aeson.FromJSON v => Aeson.FromJSON (HashMap Id v) where
 
 Aeson.deriveJSON (wwJSON $ delPrefix "_user")  ''User
 Aeson.deriveJSON (wwJSON $ delPrefix "_cand")  ''Candidate
-Aeson.deriveJSON (wwJSON $ delPrefix "_story") ''Story
 
 ----------------------------------------------------------------------
 
