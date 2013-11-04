@@ -1,8 +1,4 @@
 var wwApp = angular.module('wordwang', []);
-// var wwApp = angular.module('wordwang', []).
-//     factory('wwState', function($window) {
-//         return new WWState(ww.host);
-//     });
 
 wwApp.controller('WWCtrl', function WWCtrl($scope) {
     // Just a dummy story to start with:
@@ -13,7 +9,8 @@ wwApp.controller('WWCtrl', function WWCtrl($scope) {
         candidates: {}
     };
 
-    var wwState = new WWState(ww.host, function(_) {
+    var wwState;
+    wwState = new WWState(ww.host, function(_) {
         $scope.create = function() {
             wwState.create();
         };
