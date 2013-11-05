@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 import           Control.Applicative ((<|>))
 import           Control.Concurrent.MVar (newMVar)
 
