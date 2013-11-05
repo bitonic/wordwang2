@@ -13,7 +13,7 @@ module WordWang.Messages
     , Resp(..)
     , respRecipients
     , respBody
-    , RespError
+    , RespError(..)
     , RespRecipients(..)
     , RespBody(..)
     , respStory
@@ -64,7 +64,15 @@ data Resp = Resp
     , _respBody       :: !RespBody
     } deriving (Eq, Show)
 
-type RespError = Text
+data RespError
+    = StoryNotPresent !StoryId
+    | InternalError !Text
+    | NoCredentials
+    | InvalidCredentials
+    | ErrorDecodingReq !Text
+    | NoStory
+    deriving (Eq, Show)
+
 data RespBody
     = RespStory !UserStory
     | RespError !RespError
@@ -116,7 +124,6 @@ Aeson.deriveToJSON (wwJSON $ delPrefix "_uStory") ''UserStory
 
 instance Aeson.ToJSON RespBody where
     toJSON (RespStory story) = tagObj "story" ["body" .= Aeson.toJSON story]
-    toJSON (RespError err) = tagObj "error" ["message" .= Aeson.toJSON err]
     toJSON (RespJoined uid secret) =
         tagObj "joined" [ "user"   .= Aeson.toJSON uid
                         , "secret" .= Aeson.toJSON secret
@@ -130,6 +137,22 @@ instance Aeson.ToJSON RespBody where
         tagObj "vote" [ "candidate" .= Aeson.toJSON candUid
                       , "vote"      .= Aeson.toJSON voteUid
                       ]
+    toJSON (RespError err) = tagObj "error" (("type" .= ty) : ob)
+      where
+        (ty :: Text, ob) = errorObj err
+
+        errorObj (StoryNotPresent sid) =
+            ("storyNotPresent", ["story" .= Aeson.toJSON sid])
+        errorObj (InternalError msg) =
+            ("internalError", ["msg" .= Aeson.toJSON msg])
+        errorObj NoCredentials =
+            ("noCredentials", [])
+        errorObj InvalidCredentials =
+            ("invalidCredentials", [])
+        errorObj (ErrorDecodingReq t) =
+            ("errorDecodingReq", ["msg" .= Aeson.toJSON t])
+        errorObj NoStory =
+            ("noStory", [])
 
 ----------------------------------------------------------------------
 

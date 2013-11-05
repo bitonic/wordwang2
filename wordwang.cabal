@@ -46,14 +46,14 @@ library
                    , TupleSections
                    , ViewPatterns
 
-  ghc-options:       -threaded -Wall -rtsopts -with-rtsopts=-T -O2
+  ghc-options:       -threaded -Wall -rtsopts -with-rtsopts=-T -O2 -fno-warn-unused-do-bind
 
   ghc-prof-options:  -auto-all
 
 executable wordwang-server
   main-is:           wordwang-server.hs
   
-  ghc-options:       -threaded -Wall -rtsopts -with-rtsopts=-T -O2
+  ghc-options:       -threaded -Wall -rtsopts -with-rtsopts=-T -O2 -fno-warn-unused-do-bind
 
   ghc-prof-options:  -auto-all
 

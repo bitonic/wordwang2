@@ -27,7 +27,6 @@ import           Control.Concurrent.MVar (MVar)
 import           Control.Exception (catch)
 import           Control.Monad (forever, filterM)
 import           Data.Functor ((<$>), (<$))
-import           Data.Monoid ((<>))
 
 import           Control.Monad.Reader (ReaderT(..), MonadReader)
 import           Control.Monad.Trans (liftIO, MonadIO)
@@ -81,7 +80,7 @@ serverWWT connsMv storiesMv m pending = do
         reqm <- Aeson.eitherDecode <$> WS.receiveData conn
         case reqm of
             Left err ->
-                sendErr conn ("error decoding request: " <> T.pack err)
+                sendErr conn (ErrorDecodingReq (T.pack err))
             Right (req :: Req) -> do
                 debugMsg "received request `{}'" (Only (Shown req))
                 handleReq conn req
@@ -97,11 +96,11 @@ serverWWT connsMv storiesMv m pending = do
             return (stories & at sid ?~ (storyMv, queue), sid)
         sendJSON conn (RespCreated sid)
     handleReq conn req = case req^.reqStory of
-        Nothing -> sendErr conn "no story in request"
+        Nothing -> sendErr conn NoStory
         Just sid -> do
             stories <- readMVar storiesMv
             case stories ^. at sid of
-                Nothing -> sendErr conn "story not found"
+                Nothing -> sendErr conn NoStory
                 Just (story, queue) -> do
                     let wwState = WWState { _wwReq   = req
                                           , _wwStory = story

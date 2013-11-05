@@ -1,4 +1,3 @@
--- TODO all strict fields
 module WordWang.Objects
     ( Text
 
@@ -133,8 +132,8 @@ instance Aeson.FromJSON v => Aeson.FromJSON (HashMap Id v) where
         f = traverse (\(k, v) -> (, v) . Id <$> UUID.fromASCIIBytes k)
           . HashMap.toList
 
-Aeson.deriveJSON (wwJSON $ delPrefix "_user")  ''User
-Aeson.deriveJSON (wwJSON $ delPrefix "_cand")  ''Candidate
+Aeson.deriveJSON (wwJSON $ delPrefix "_user") ''User
+Aeson.deriveJSON (wwJSON $ delPrefix "_cand") ''Candidate
 
 ----------------------------------------------------------------------
 

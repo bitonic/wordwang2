@@ -1,4 +1,4 @@
--- TODO do some logging
+-- TODO track WS connections requests in the logging
 module WordWang
     ( module WordWang.Messages
     , module WordWang.Monad
@@ -9,7 +9,6 @@ module WordWang
 import           Control.Concurrent.MVar (modifyMVar, readMVar)
 import           Data.Functor ((<$>))
 import           Data.List (maximumBy)
-import           Data.Monoid ((<>))
 import           Data.Ord (comparing)
 
 import           Control.Monad.Trans (liftIO)
@@ -27,8 +26,7 @@ import           WordWang.Monad
 import           WordWang.Objects
 
 internalError :: Text -> WWT IO a
-internalError err = do
-    terminate (RespError ("internal error: " <> err))
+internalError = terminate . RespError . InternalError
 
 makeSecret :: WWT IO UserSecret
 makeSecret = do
@@ -58,14 +56,13 @@ authenticated :: WWT IO UserId
 authenticated = do
     authM <- view (wwReq . reqAuth)
     case authM of
-        Nothing -> authErr "no credentials provided"
+        Nothing -> terminate (RespError NoCredentials)
         Just auth -> do
             story <- viewStory
             let uid = auth^.reqAuthUser
-            maybe (authErr "invalid credentials") (const (return uid))
+            maybe (terminate (RespError InvalidCredentials))
+                  (const (return uid))
                   (story^.storyUsers.at uid)
-  where
-    authErr err = terminate (RespError ("authentication required, but " <> err))
 
 wordwang :: WWT IO ()
 wordwang = do
@@ -79,7 +76,7 @@ wordwang = do
         ReqJoin -> do
             -- TODO should we check if the user is already authenticated?
             user <- liftIO . newUser =<< makeSecret
-            story <- modifyStory' $ \story ->
+            modifyStory' $ \story ->
                 let story' = story & storyUsers.at (user^.userId) ?~ user
                 in  (story', story')
             respond (respToThis (RespJoined (user^.userId) (user^.userSecret)))
