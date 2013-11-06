@@ -22,11 +22,16 @@ module WordWang.Messages
     , respError
     , UserStory
     , uStoryBlocks
+    , uStoryUsers
     , uStoryCandidates
     , uStoryId
     ) where
 
 import           Data.HashMap.Strict (HashMap)
+
+import qualified Data.HashMap.Strict as HashMap
+import           Data.HashSet (HashSet)
+import qualified Data.HashSet as HashSet
 
 import           Control.Lens (makeLenses, (^.))
 import           Data.Aeson ((.=))
@@ -77,6 +82,7 @@ data RespBody
     = RespStory !UserStory
     | RespError !RespError
     | RespJoined !UserId !UserSecret
+    | RespUser !UserId
     | RespCreated !StoryId
     | RespVotingClosed !Block
     | RespCandidate !Candidate
@@ -84,17 +90,19 @@ data RespBody
     deriving (Eq, Show)
 
 data UserStory = UserStory
-    { _uStoryId         :: !StoryId
-    , _uStoryBlocks     :: ![Block]
-    , _uStoryCandidates :: !(HashMap UserId Candidate)
+    { _uStoryId           :: !StoryId
+    , _uStoryUsers        :: !(HashSet UserId)
+    , _uStoryBlocks       :: ![Block]
+    , _uStoryCandidates   :: !(HashMap UserId Candidate)
     } deriving (Eq, Show)
 
 respStory :: Story -> RespBody
-respStory story =
-    RespStory UserStory{ _uStoryId         = story^.storyId
-                       , _uStoryBlocks     = story^.storyBlocks
-                       , _uStoryCandidates = story^.storyCandidates
-                       }
+respStory story = RespStory UserStory
+    { _uStoryId         = story^.storyId
+    , _uStoryUsers      = HashSet.fromList (HashMap.keys (story^.storyUsers))
+    , _uStoryBlocks     = story^.storyBlocks
+    , _uStoryCandidates = story^.storyCandidates
+    }
 
 respToThis :: RespBody -> Resp
 respToThis body = Resp{_respRecipients = This, _respBody = body}
@@ -128,6 +136,7 @@ instance Aeson.ToJSON RespBody where
         tagObj "joined" [ "user"   .= Aeson.toJSON uid
                         , "secret" .= Aeson.toJSON secret
                         ]
+    toJSON (RespUser uid) = tagObj "user" [ "user" .= Aeson.toJSON uid ]
     toJSON (RespCreated sid) = tagObj "created" ["story" .= Aeson.toJSON sid]
     toJSON (RespVotingClosed block) =
         tagObj "votingClosed" ["block" .= Aeson.toJSON block]

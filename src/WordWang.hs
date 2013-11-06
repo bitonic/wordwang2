@@ -70,15 +70,14 @@ wordwang = do
     case req^.reqBody of
         ReqCreate ->
             internalError "wordwang: received ReqCreate"
-        ReqStory -> do
-            story <- viewStory
-            respond (respToThis (respStory story))
+        ReqStory -> respond . respToThis . respStory =<< viewStory
         ReqJoin -> do
             -- TODO should we check if the user is already authenticated?
             user <- liftIO . newUser =<< makeSecret
             modifyStory' $ \story ->
                 let story' = story & storyUsers.at (user^.userId) ?~ user
                 in  (story', story')
+            respond (respToAll (RespUser (user^.userId)))
             respond (respToThis (RespJoined (user^.userId) (user^.userSecret)))
         ReqCandidate body -> do
             uid <- authenticated

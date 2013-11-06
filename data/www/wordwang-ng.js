@@ -4,7 +4,7 @@ wwApp.controller('WWCtrl', function WWCtrl($scope) {
     // Just a dummy story to start with:
     $scope.story = {
         id: null,
-        users: {},
+        users: [],
         blocks: [],
         candidates: {}
     };

@@ -1,4 +1,5 @@
 #!/bin/bash
+cabal build
 if [[ ! -f "data/www/angular.js" ]]; then
     curl https://ajax.googleapis.com/ajax/libs/angularjs/1.0.8/angular.js -o data/www/angular.js
 fi

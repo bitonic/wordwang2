@@ -7,7 +7,7 @@ function applyHandlers(handlers, x) {
 
 var ww = {
     debug: true,
-    host: 'ws://localhost:8888/ws',
+    host: 'ws://localhost:8000/ws',
 
     // -----------------------------------------------------------------
     // Utils
@@ -80,6 +80,12 @@ function WWState(host, onopen) {
         // TODO Should I check here?
         if (!(resp.vote in votes)) {
             votes.push(resp.vote);
+        }
+    });
+    st.onResp('user', function(resp) {
+        var users = st.story.users;
+        if (!(resp.user in users)) {
+            users.push(resp.user);
         }
     });
 }

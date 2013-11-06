@@ -17,16 +17,23 @@
         <input type="text" ng-model="blockInput">
         <button ng-click="candidate()">GO!</button>
       </form>
+      <hr>
+      Candidates:
       <div>
         <span ng-repeat="candidate in story.candidates" ng-click="vote(candidate.user)">
           <a href="" ng-click="vote(candidate.user)">{{candidate.block}} ({{candidate.votes.length}})</a>
         </span>
       </div>
+      <hr>
+      Story:
       <div>
         <span ng-repeat="block in story.blocks">
           {{block}}
         </span>
       </div>
+      <hr>
+      Partecipants: {{story.users.length}}
+      <hr>
       <!-- TODO remove this, join automatically -->
       <button ng-click="join()">Join</button>
       <button ng-click="closeVoting()">Close voting</button>
