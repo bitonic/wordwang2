@@ -18,7 +18,8 @@ start :: Int -> (Int -> Maybe Int) -> IO Incremental
 start x f = do
     cont <- newMVar (Yes (x :| []))
     done <- newEmptyMVar
-    forkIO (worker cont done)
+    -- TODO do something with this
+    tid <- forkIO (worker cont done)
     return Incremental{ incrContinue = cont
                       , incrDone     = done
                       , incrFirst    = x

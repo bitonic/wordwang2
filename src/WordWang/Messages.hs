@@ -57,7 +57,6 @@ data ReqBody
     | ReqJoin
     | ReqCandidate Block
     | ReqVote UserId
-    | ReqCloseVoting -- TODO used for debugging, remove
     | ReqStory
     deriving (Eq, Show)
 
@@ -124,7 +123,6 @@ instance Aeson.FromJSON ReqBody where
         , ("join",        parseNullary ReqJoin)
         , ("candidate",   parseUnary   ReqCandidate "block")
         , ("vote",        parseUnary   ReqVote      "user")
-        , ("closeVoting", parseNullary ReqCloseVoting)
         , ("story",       parseNullary ReqStory)
         ]
 
