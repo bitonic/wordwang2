@@ -1,8 +1,8 @@
 module WordWang.Queue
     ( Queue
-    , newQueue
-    , writeQueue
-    , flushQueue
+    , new
+    , write
+    , flush
     ) where
 
 import           Control.Applicative ((<*>))
@@ -14,16 +14,16 @@ import           Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, modifyMVa
 data Queue a = Queue (MVar [a]) (MVar ()) (MVar ())
 
 -- | Build and returns a new instance of 'Queue'
-newQueue :: IO (Queue a)
-newQueue = Queue <$> newMVar [] <*> newEmptyMVar <*> newMVar ()
+new :: IO (Queue a)
+new = Queue <$> newMVar [] <*> newEmptyMVar <*> newMVar ()
 
 -- | Write a value to a 'Queue'.
-writeQueue :: Queue a -> a -> IO ()
-writeQueue (Queue queue signal _lock) x = do
+write :: Queue a -> a -> IO ()
+write (Queue queue signal _lock) x = do
     modifyMVar_ queue (return . (x :))
     void (tryPutMVar signal ())
 
-flushQueue :: Queue a -> IO [a]
-flushQueue (Queue queue signal lock) = withMVar lock $ \_ -> do
+flush :: Queue a -> IO [a]
+flush (Queue queue signal lock) = withMVar lock $ \_ -> do
     takeMVar signal
     modifyMVar queue (\msgs -> return ([], reverse msgs))

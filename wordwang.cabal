@@ -16,9 +16,10 @@ library
                    , WordWang.Messages
                    , WordWang.Monad
                    , WordWang.Objects
+                   , WordWang.Queue
+                   , WordWang.Incremental
 
   other-modules:     WordWang.Utils
-                   , WordWang.Queue
 
   build-depends:     base                 >= 4 && < 5
                    , DRBG                 >= 0.5
@@ -30,6 +31,7 @@ library
                    , hashable             >= 1.1
                    , lens                 >= 3.10
                    , mtl                  >= 2.1
+                   , semigroups           >= 0.11
                    , snap                 >= 0.13
                    , string-combinators   >= 0.6
                    , text                 >= 0.11

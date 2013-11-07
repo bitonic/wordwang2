@@ -40,7 +40,7 @@ import qualified Network.WebSockets as WS
 
 import           WordWang.Messages
 import           WordWang.Objects
-import           WordWang.Queue
+import           WordWang.Queue as Queue
 import           WordWang.Utils
 
 type Stories     = MVar (HashMap StoryId (MVar Story, Queue RespBody))
@@ -64,7 +64,7 @@ runWWT state = flip runReaderT state . runEitherT . unWWT
 
 queueWorker :: Connections -> Queue RespBody -> IO a
 queueWorker connsMv queue = forever $ do
-    msgs <- flushQueue queue
+    msgs <- Queue.flush queue
     modifyMVar_ connsMv $ \conns -> flip filterM conns $ \conn ->
         (True <$ mapM_ (sendJSON conn) msgs) `catch`
         \(_ :: WS.ConnectionException) -> return False
@@ -90,7 +90,7 @@ serverWWT connsMv storiesMv m pending = do
             story <- emptyStory
             storyMv <- newMVar story
             let sid = story^.storyId
-            queue <- newQueue
+            queue <- Queue.new
             -- TODO do something with this
             queueTid <- forkIO (queueWorker connsMv queue)
             return (stories & at sid ?~ (storyMv, queue), sid)
@@ -125,7 +125,7 @@ respondInIO = do
     queue <- view wwQueue
     conn <- view wwConn
     return $ \resp -> case resp^.respRecipients of
-        All -> writeQueue queue (resp^.respBody)
+        All -> Queue.write queue (resp^.respBody)
         -- TODO make this sending more async, since we do it while
         -- taking a MVar
         This -> sendJSON conn (resp^.respBody)
