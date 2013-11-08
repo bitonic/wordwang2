@@ -11,17 +11,19 @@ module WordWang
     ) where
 
 import           Control.Applicative ((<*>))
-import           Control.Concurrent.MVar (MVar, modifyMVar_, readMVar)
+import           Control.Concurrent.MVar (MVar, newMVar, modifyMVar_, modifyMVar, readMVar)
 import           Control.Exception (catch)
 import           Control.Monad (filterM, unless)
 import           Data.Foldable (toList)
 import           Data.Functor ((<$>), (<$))
 
 import           Control.Monad.Reader (ask)
+import           Control.Monad.Trans (liftIO)
 import           Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 import qualified Data.Text as Text
-import           System.Random (random)
+import           System.Random (random, randomIO)
 
 import           Control.Lens
 import           Crypto.Random (genBytes)
@@ -29,6 +31,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as Base64.URL
 import qualified Network.WebSockets as WS
 import           Snap (Snap)
+import qualified Snap as Snap
 
 import           WordWang.Messages
 import           WordWang.Monad
@@ -104,7 +107,17 @@ authenticated = do
                   (story^.storyUsers.at uid)
 
 createStory :: Stories -> Snap ()
-createStory = undefined
+createStory storiesMv = do
+    sid <- liftIO go
+    Snap.modifyResponse $
+        Snap.setResponseCode 200 . Snap.setContentType "text/json"
+    Snap.writeLBS (Aeson.encode sid)
+  where
+    go = modifyMVar storiesMv $ \stories -> do
+        sid <- randomIO
+        storyMv <- newMVar (emptyStory sid)
+        connsMv <- newMVar []
+        return (HashMap.insert sid (storyMv, connsMv) stories, sid)
 
 serverWW :: Stories -> WW () -> WS.ServerApp
 serverWW storiesMv m pending = do
@@ -124,7 +137,7 @@ serverWW storiesMv m pending = do
         let sid = req^.reqStory
         stories <- readMVar storiesMv
         case stories ^. at sid of
-            Nothing -> sendErr conn NoStory
+            Nothing -> sendErr conn NoStory >> go conn isReg
             Just (storyMv, connsMv) -> do
                 unless isReg (modifyMVar_ connsMv (return . (conn :)))
                 modifyMVar_ storyMv $ \story -> do
