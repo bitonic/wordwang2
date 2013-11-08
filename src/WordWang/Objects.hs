@@ -2,7 +2,6 @@ module WordWang.Objects
     ( Text
 
     , Id
-    , newId
 
     , UserId
     , UserNick
@@ -10,7 +9,6 @@ module WordWang.Objects
     , User(..)
     , userId
     , userSecret
-    , newUser
 
     , Candidate(..)
     , candBlock
@@ -28,6 +26,7 @@ module WordWang.Objects
     , emptyStory
     ) where
 
+import           Control.Arrow (first)
 import           Data.Functor ((<$>))
 import           Data.Traversable (traverse)
 
@@ -39,12 +38,12 @@ import qualified Data.HashSet as HashSet
 import           Data.Hashable (Hashable(hashWithSalt))
 import           Data.Text (Text)
 import qualified Data.Text.Encoding as T
+import           System.Random (Random(..))
 
 import           Control.Lens (makeLenses)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson
 import qualified Data.UUID as UUID
-import qualified Data.UUID.V4 as UUID
 
 import           WordWang.Utils
 
@@ -57,8 +56,9 @@ instance Show Id where
 instance Hashable Id where
     hashWithSalt salt = hashWithSalt salt . UUID.toASCIIBytes . unId
 
-newId :: IO Id
-newId = Id <$> UUID.nextRandom
+instance Random Id where
+    randomR (Id lo, Id hi) g = first Id (randomR (lo, hi) g)
+    random g = first Id (random g)
 
 type UserId = Id
 type UserSecret = ByteString
@@ -67,13 +67,6 @@ data User = User
     { _userId     :: !UserId
     , _userSecret :: !UserSecret -- TODO Hash the secret
     } deriving (Eq, Show)
-
-newUser :: UserSecret -> IO User
-newUser secret = do
-    uid <- newId
-    return User{ _userId     = uid
-               , _userSecret = secret
-               }
 
 data Candidate = Candidate
     { _candUser  :: !UserId
@@ -97,14 +90,12 @@ data Story = Story
     , _storyCandidates :: !(HashMap UserId Candidate)
     } deriving (Eq, Show)
 
-emptyStory :: IO Story
-emptyStory = do
-    sid <- newId
-    return Story{ _storyId         = sid
-                , _storyUsers      = HashMap.empty
-                , _storyBlocks     = []
-                , _storyCandidates = HashMap.empty
-                }
+emptyStory :: StoryId -> Story
+emptyStory sid = Story{ _storyId         = sid
+                      , _storyUsers      = HashMap.empty
+                      , _storyBlocks     = []
+                      , _storyCandidates = HashMap.empty
+                      }
 
 ----------------------------------------------------------------------
 

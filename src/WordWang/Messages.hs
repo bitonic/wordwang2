@@ -42,7 +42,7 @@ import           WordWang.Objects
 import           WordWang.Utils
 
 data Req = Req
-    { _reqStory :: !(Maybe StoryId)
+    { _reqStory :: !StoryId
     , _reqAuth  :: !(Maybe ReqAuth)
     , _reqBody  :: !ReqBody
     } deriving (Eq, Show)
@@ -53,8 +53,7 @@ data ReqAuth = ReqAuth
     } deriving (Eq, Show)
 
 data ReqBody
-    = ReqCreate
-    | ReqJoin
+    = ReqJoin
     | ReqCandidate Block
     | ReqVote UserId
     | ReqStory
@@ -119,8 +118,7 @@ Aeson.deriveFromJSON (wwJSON $ delPrefix "_reqAuth")  ''ReqAuth
 
 instance Aeson.FromJSON ReqBody where
     parseJSON = parseTagged
-        [ ("create",      parseNullary ReqCreate)
-        , ("join",        parseNullary ReqJoin)
+        [ ("join",        parseNullary ReqJoin)
         , ("candidate",   parseUnary   ReqCandidate "block")
         , ("vote",        parseUnary   ReqVote      "user")
         , ("story",       parseNullary ReqStory)
