@@ -103,13 +103,6 @@ authenticated = do
                   (const (return uid))
                   (story^.storyUsers.at uid)
 
--- queueWorker :: Connections -> Queue RespBody -> IO a
--- queueWorker connsMv queue = forever $ do
---     msgs <- Queue.flush queue
---     modifyMVar_ connsMv $ \conns -> flip filterM conns $ \conn ->
---         (True <$ mapM_ (sendJSON conn) msgs) `catch`
---         \(_ :: WS.ConnectionException) -> return False
-
 createStory :: Stories -> Snap ()
 createStory = undefined
 
