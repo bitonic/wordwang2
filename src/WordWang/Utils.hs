@@ -9,10 +9,12 @@ module WordWang.Utils
     , sendJSON
     , debugMsg
     , errorMsg
+    , eitherUnzip
     , Only(..)
     , Shown(..)
     ) where
 
+import           Control.Arrow (first, second)
 import           Data.Char (isUpper, toLower)
 import           Data.List (stripPrefix)
 import           Data.Monoid ((<>))
@@ -98,3 +100,8 @@ debugMsg = stderrMsg "[DEBUG] "
 
 errorMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
 errorMsg = stderrMsg "[ERROR] "
+
+eitherUnzip :: (a -> Either b c) -> [a] -> ([b], [c])
+eitherUnzip _ [] = ([], [])
+eitherUnzip f (x : xs) =
+    either (first . (:)) (second . (:)) (f x) (eitherUnzip f xs)

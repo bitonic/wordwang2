@@ -1,7 +1,7 @@
 module WordWang.Incremental where
 
 import           Control.Concurrent (forkIO, threadDelay)
-import           Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, modifyMVar_, takeMVar, modifyMVar)
+import           Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, modifyMVar_, modifyMVar, readMVar)
 
 import           Data.List.NonEmpty (NonEmpty(..))
 
@@ -43,4 +43,4 @@ bump Incremental{incrContinue = cont, incrNext = f} =
             _ -> yn
 
 wait :: Incremental -> IO ()
-wait Incremental{incrDone = done} = takeMVar done
+wait Incremental{incrDone = done} = readMVar done

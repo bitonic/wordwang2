@@ -6,6 +6,7 @@ module WordWang.Monad
     , wwResps
     , wwRG
     , wwDRBG
+    , wwBump
 
       -- * The monad
     , WW
@@ -33,25 +34,31 @@ import           WordWang.Bwd
 
 data WWState = WWState
     { _wwStory :: Story
-    , _wwResps :: Bwd Resp
+    , _wwResps :: Bwd (Resp ())
     , _wwRG    :: StdGen
     , _wwDRBG  :: HashDRBG
+    , _wwBump  :: Bool
     }
 
 makeLenses ''WWState
 
-newtype WW a = WW {unWW :: EitherT RespBody (ReaderT Req (State WWState)) a}
+newtype WW a = WW {unWW :: EitherT RespError (ReaderT Req (State WWState)) a}
     deriving (Functor, Applicative, Monad, MonadState WWState, MonadReader Req)
 
-runWW :: Req -> Story -> WW a -> IO (Either RespBody a, WWState)
+runWW :: Req -> Story -> WW a -> IO (Either RespError a, WWState)
 runWW req story m = do
     rg <- newStdGen
     drbg <- newGenIO
-    let wwst = WWState story B0 rg drbg
+    let wwst = WWState{ _wwStory = story
+                      , _wwResps = B0
+                      , _wwRG    = rg
+                      , _wwDRBG  = drbg
+                      , _wwBump  = False
+                      }
     return . flip runState wwst . flip runReaderT req . runEitherT . unWW $ m
 
-terminate :: RespBody -> WW a
+terminate :: RespError -> WW a
 terminate = WW . EitherT . return . Left
 
-respond :: Resp -> WW ()
+respond :: Resp () -> WW ()
 respond resp = wwResps %= (:< resp)

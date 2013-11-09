@@ -29,9 +29,11 @@ module WordWang.Messages
 
 import           Data.HashMap.Strict (HashMap)
 
+import           Data.Foldable (Foldable)
 import qualified Data.HashMap.Strict as HashMap
 import           Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
+import           Data.Traversable (Traversable)
 
 import           Control.Lens (makeLenses, (^.))
 import           Data.Aeson ((.=))
@@ -59,11 +61,11 @@ data ReqBody
     | ReqStory
     deriving (Eq, Show)
 
-data RespRecipients = All | This
-    deriving (Eq, Show)
+data RespRecipients conn = All | This conn
+    deriving (Eq, Show, Functor, Foldable, Traversable)
 
-data Resp = Resp
-    { _respRecipients :: !RespRecipients
+data Resp conn = Resp
+    { _respRecipients :: !(RespRecipients conn)
     , _respBody       :: !RespBody
     } deriving (Eq, Show)
 
@@ -102,13 +104,13 @@ respStory story = RespStory UserStory
     , _uStoryCandidates = story^.storyCandidates
     }
 
-respToThis :: RespBody -> Resp
-respToThis body = Resp{_respRecipients = This, _respBody = body}
+respToThis :: RespBody -> Resp ()
+respToThis body = Resp{_respRecipients = This (), _respBody = body}
 
-respToAll :: RespBody -> Resp
+respToAll :: RespBody -> Resp ()
 respToAll body = Resp{_respRecipients = All, _respBody = body}
 
-respError :: RespError -> Resp
+respError :: RespError -> Resp ()
 respError err = respToThis (RespError err)
 
 ----------------------------------------------------------------------

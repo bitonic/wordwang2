@@ -1,4 +1,6 @@
 -- TODO track WS connections requests in the logging
+-- TODO check the various forkIOs and make sure that those threads won't
+--      be left dangling in bad ways
 module WordWang
     ( module WordWang.Messages
     , module WordWang.Monad
@@ -11,6 +13,7 @@ module WordWang
     ) where
 
 import           Control.Applicative ((<*>))
+import           Control.Concurrent (forkIO)
 import           Control.Concurrent.MVar (MVar, newMVar, modifyMVar_, modifyMVar, readMVar)
 import           Control.Exception (catch)
 import           Control.Monad (filterM, unless)
@@ -38,11 +41,17 @@ import           WordWang.Monad
 import           WordWang.Objects
 import           WordWang.Utils
 import           WordWang.Bwd
+import           WordWang.Queue (Queue)
+import qualified WordWang.Queue as Queue
 
-type Stories = MVar (HashMap StoryId (MVar Story, MVar [WS.Connection]))
+type Stories =
+    MVar (HashMap StoryId ( MVar Story
+                          , MVar [WS.Connection]
+                          , Queue (Resp WS.Connection)
+                          ))
 
 internalError :: Text -> WW a
-internalError = terminate . RespError . InternalError
+internalError = terminate . InternalError
 
 makeSecret :: WW UserSecret
 makeSecret = do
@@ -57,9 +66,9 @@ newId = do
     let (i, gen') = random gen
     i <$ (wwRG .= gen')
 
--- -- TODO the Incremental stuff relies on the interplay between the
--- -- 'putMVar' and 'takeMVar'.  It would be better for this game to be
--- -- self-contained in some module to make it less fragile.
+-- TODO the Incremental stuff relies on the interplay between the
+-- 'putMVar' and 'takeMVar'.  It would be better for this game to be
+-- self-contained in some module to make it less fragile.
 
 -- startIncre :: WWT IO (IO ())
 -- startIncre = do
@@ -98,12 +107,11 @@ authenticated :: WW UserId
 authenticated = do
     authM <- view reqAuth
     case authM of
-        Nothing -> terminate (RespError NoCredentials)
+        Nothing -> terminate NoCredentials
         Just auth -> do
             story <- use wwStory
             let uid = auth^.reqAuthUser
-            maybe (terminate (RespError InvalidCredentials))
-                  (const (return uid))
+            maybe (terminate InvalidCredentials) (const (return uid))
                   (story^.storyUsers.at uid)
 
 createStory :: Stories -> Snap ()
@@ -117,7 +125,21 @@ createStory storiesMv = do
         sid <- randomIO
         storyMv <- newMVar (emptyStory sid)
         connsMv <- newMVar []
-        return (HashMap.insert sid (storyMv, connsMv) stories, sid)
+        queue <- Queue.new
+        forkIO (goQueue connsMv queue)
+        return (HashMap.insert sid (storyMv, connsMv, queue) stories, sid)
+
+    goQueue connsMv queue = do
+        resps <- Queue.flush queue
+        let (forAll, forThis) =
+                flip eitherUnzip (toList resps) $ \resp ->
+                case resp^.respRecipients of
+                    All       -> Left  (resp^.respBody)
+                    This conn -> Right (conn, resp^.respBody)
+        modifyMVar_ connsMv $ \conns -> flip filterM conns $ \conn' ->
+            (True <$ mapM_ (sendJSON conn') forAll) `catch`
+            \(_ :: WS.ConnectionException) -> return False
+        mapM_ (uncurry sendJSON) forThis
 
 serverWW :: Stories -> WW () -> WS.ServerApp
 serverWW storiesMv m pending = do
@@ -137,19 +159,18 @@ serverWW storiesMv m pending = do
         let sid = req^.reqStory
         stories <- readMVar storiesMv
         case stories ^. at sid of
-            Nothing -> sendErr conn NoStory >> go conn isReg
-            Just (storyMv, connsMv) -> do
+            Nothing -> do
+                sendErr conn NoStory
+                go conn isReg
+            Just (storyMv, connsMv, queue) -> do
                 unless isReg (modifyMVar_ connsMv (return . (conn :)))
                 modifyMVar_ storyMv $ \story -> do
                     (res, wwst) <- runWW req story m
-                    let resps  = wwst^.wwResps
-                        resps' = either ((resps :<) . respToThis) (const resps) res
-                        (map _respBody -> forAll, map _respBody -> forThis) =
-                            break ((== This) . _respRecipients) (toList resps')
-                    modifyMVar_ connsMv $ \conns -> flip filterM conns $ \conn' ->
-                        (True <$ mapM_ (sendJSON conn') forAll) `catch`
-                        \(_ :: WS.ConnectionException) -> return False
-                    mapM_ (sendJSON conn) forThis
+                    let resps   = wwst^.wwResps
+                        resps'  = either ((resps :<) . respToThis . RespError)
+                                         (const resps) res
+                        resps'' = (respRecipients %~ fmap (const conn)) <$> resps'
+                    mapM_ (Queue.write queue) (toList resps'')
                     return (wwst^.wwStory)
                 go conn True
 
