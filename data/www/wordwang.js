@@ -62,9 +62,6 @@ function WWState(host, onopen) {
     st.onResp('joined', function(resp) {
         st.user = {id: resp.user, secret: resp.secret};
     });
-    st.onResp('created', function(resp) {
-        st.storyId = resp.story;
-    });
     st.onResp('story', function(resp) {
         st.story = resp.body;
     });
@@ -117,14 +114,6 @@ WWState.prototype = {
         ww.debugLog('sending `' + payload + "'");
         this.sock.send(payload);
         this._lastReq = req;
-    },
-
-    create: function() {
-        if (this.storyId === null) {
-            this.sendReq('create', {});
-        } else {
-            ww.debugLog("`WWState.create' but story already exists in state, ignoring");
-        }
     },
 
     join: function() {

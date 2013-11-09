@@ -1,6 +1,6 @@
 var wwApp = angular.module('wordwang', []);
 
-wwApp.controller('WWCtrl', function WWCtrl($scope) {
+wwApp.controller('WWCtrl', function WWCtrl($scope, $http) {
     // Just a dummy story to start with:
     $scope.story = {
         id: null,
@@ -11,8 +11,23 @@ wwApp.controller('WWCtrl', function WWCtrl($scope) {
 
     var wwState;
     wwState = new WWState(ww.host, function(_) {
+        // TODO there's probably a way to get this...
+        var createDiv = document.getElementById('create');
+        var storyDiv = document.getElementById('story');
+        var storyId = ww.getHash();
+
         $scope.create = function() {
-            wwState.create();
+            $http.get('/create').
+                success(function(data, _status, _headers, _config) {
+                    wwState.storyId = JSON.parse(data);
+                    createDiv.style.display = 'none';
+                    storyDiv.style.display = 'block';
+                    wwState.getStory();
+                    window.location = ww.storyUrl(wwState.storyId);
+                }).
+                error(function(_data, _status, _headers, _config) {
+                    ww.errorLog("error while creating story");
+                });
         };
 
         $scope.candidate = function() {
@@ -41,19 +56,6 @@ wwApp.controller('WWCtrl', function WWCtrl($scope) {
             $scope.$digest();
         });
 
-        // Join on room creation
-        wwState.onResp('created', function(_) {
-            createDiv.style.display = 'none';
-            storyDiv.style.display = 'block';
-            wwState.getStory();
-            wwState.join();
-            window.location = ww.storyUrl(wwState.storyId);
-        });
-
-        // TODO there's probably a way to get this...
-        var createDiv = document.getElementById('create');
-        var storyDiv = document.getElementById('story');
-        var storyId = ww.getHash();
         if (ww.getHash() === null) {
             createDiv.style.display = 'block';
         } else {
