@@ -19,6 +19,8 @@ import           Control.Exception (catch)
 import           Control.Monad (filterM, unless)
 import           Data.Foldable (toList)
 import           Data.Functor ((<$>), (<$))
+import           Data.List (maximumBy)
+import           Data.Ord (comparing)
 
 import           Control.Monad.Reader (ask)
 import           Control.Monad.Trans (liftIO)
@@ -140,6 +142,7 @@ createStory storiesMv = do
             (True <$ mapM_ (sendJSON conn') forAll) `catch`
             \(_ :: WS.ConnectionException) -> return False
         mapM_ (uncurry sendJSON) forThis
+        goQueue connsMv queue
 
 serverWW :: Stories -> WW () -> WS.ServerApp
 serverWW storiesMv m pending = do
@@ -149,8 +152,9 @@ serverWW storiesMv m pending = do
     go conn isReg = do
         reqm <- Aeson.eitherDecode <$> WS.receiveData conn
         case reqm of
-            Left err ->
+            Left err -> do
                 sendErr conn (ErrorDecodingReq (Text.pack err))
+                go conn isReg
             Right (req :: Req) -> do
                 debugMsg "received request `{}'" (Only (Shown req))
                 handleReq conn isReg req
@@ -205,3 +209,16 @@ wordwang = do
                     let cand' = cand & candVotes %~ HashSet.insert voteUid
                     wwStory %= (storyCandidates.at candUid ?~ cand')
                 _ -> return ()
+        ReqCloseVoting -> do
+            authenticated
+            story <- use wwStory
+            case HashMap.elems (story^.storyCandidates) of
+                [] -> return () -- TODO should we return an error?
+                cands@(_:_) -> do
+                    let cand  = maximumBy (comparing (HashSet.size . _candVotes))
+                                          cands
+                        block = cand^.candBlock
+                    respond (respToAll (RespVotingClosed block))
+                    wwStory %= (storyCandidates .~ HashMap.empty)
+                    wwStory %= (storyBlocks %~ (++ [block]))
+

@@ -59,6 +59,7 @@ data ReqBody
     | ReqCandidate Block
     | ReqVote UserId
     | ReqStory
+    | ReqCloseVoting
     deriving (Eq, Show)
 
 data RespRecipients conn = All | This conn
@@ -124,6 +125,7 @@ instance Aeson.FromJSON ReqBody where
         , ("candidate",   parseUnary   ReqCandidate "block")
         , ("vote",        parseUnary   ReqVote      "user")
         , ("story",       parseNullary ReqStory)
+        , ("closeVoting", parseNullary ReqCloseVoting)
         ]
 
 Aeson.deriveToJSON (wwJSON $ delPrefix "_uStory") ''UserStory
