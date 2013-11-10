@@ -13,10 +13,14 @@
       <button ng-click="create()">Create Story</button>
     </div>
     <div id="story">
-      <form>
-        <input type="text" ng-model="blockInput">
-        <button ng-click="candidate()">GO!</button>
-      </form>
+      <div id="actions">
+        <form>
+          <input type="text" ng-model="blockInput">
+          <button ng-click="candidate()">New candidate</button>
+        </form>
+
+        <button id="closeVotingButton" ng-click="closeVoting()">Close voting</button>
+      </div>
       <hr>
       Candidates:
       <div>
@@ -35,8 +39,7 @@
       Partecipants: {{story.users.length}}
       <hr>
       <!-- TODO remove this, join automatically -->
-      <button ng-click="join()">Join</button>
-      <button ng-click="closeVoting()">Close voting</button>
+      <button id="joinButton" ng-click="join()">Join</button>
     </div>
   </body>
 </html>

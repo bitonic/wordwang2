@@ -28,10 +28,12 @@ import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 import qualified Data.Text as Text
-import           System.Random (random, randomIO)
+import           Data.Time (getCurrentTime)
+import           System.Random (randomIO)
 
 import           Control.Lens
-import           Crypto.Random (genBytes)
+import           Crypto.Random (genBytes, newGenIO)
+import           Crypto.Random.DRBG (HashDRBG)
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as Base64.URL
 import qualified Network.WebSockets as WS
@@ -57,16 +59,10 @@ internalError = terminate . InternalError
 
 makeSecret :: WW UserSecret
 makeSecret = do
-    gen <- use wwDRBG
+    gen <- liftIO (newGenIO :: IO HashDRBG)
     case genBytes 15 gen of
         Left err -> internalError (Text.pack (show err))
-        Right (bs, gen') -> wwDRBG .= gen' >> return (Base64.URL.encode bs)
-
-newId :: WW Id
-newId = do
-    gen <- use wwRG
-    let (i, gen') = random gen
-    i <$ (wwRG .= gen')
+        Right (bs, _) -> return (Base64.URL.encode bs)
 
 -- TODO the Incremental stuff relies on the interplay between the
 -- 'putMVar' and 'takeMVar'.  It would be better for this game to be
@@ -187,7 +183,7 @@ wordwang = do
         ReqStory -> respond . respToThis . respStory =<< use wwStory
         ReqJoin -> do
             -- TODO should we check if the user is already authenticated?
-            user <- User <$> newId <*> makeSecret
+            user <- User <$> liftIO randomIO <*> makeSecret
             wwStory %= (storyUsers.at (user^.userId) ?~ user)
             respond (respToAll (RespUser (user^.userId)))
             respond (respToThis (RespJoined (user^.userId) (user^.userSecret)))
@@ -221,4 +217,3 @@ wordwang = do
                     respond (respToAll (RespVotingClosed block))
                     wwStory %= (storyCandidates .~ HashMap.empty)
                     wwStory %= (storyBlocks %~ (++ [block]))
-

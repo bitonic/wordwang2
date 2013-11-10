@@ -64,8 +64,8 @@ type UserId = Id
 type UserSecret = ByteString
 type UserNick = Text
 data User = User
-    { _userId     :: !UserId
-    , _userSecret :: !UserSecret -- TODO Hash the secret
+    { _userId         :: !UserId
+    , _userSecret     :: !UserSecret -- TODO Hash the secret
     } deriving (Eq, Show)
 
 data Candidate = Candidate

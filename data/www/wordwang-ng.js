@@ -14,7 +14,8 @@ wwApp.controller('WWCtrl', function WWCtrl($scope, $http) {
         // TODO there's probably a way to get this...
         var createDiv = document.getElementById('create');
         var storyDiv = document.getElementById('story');
-        var storyId = ww.getHash();
+        var actions = document.getElementById('actions');
+        var joinButton = document.getElementById('joinButton');
 
         $scope.create = function() {
             $http.get('/create').
@@ -56,7 +57,14 @@ wwApp.controller('WWCtrl', function WWCtrl($scope, $http) {
             $scope.$digest();
         });
 
-        if (ww.getHash() === null) {
+        // Show candidate on join
+        wwState.onResp('joined', function(_) {
+            actions.style.display = 'block';
+            joinButton.style.display = 'none';
+        });
+
+        var storyId = ww.getHash();
+        if (storyId === null) {
             createDiv.style.display = 'block';
         } else {
             storyDiv.style.display = 'block';
