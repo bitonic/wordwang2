@@ -93,12 +93,6 @@ startIncre storyMv queue = do
                 let story' = story & storyCandidates .~ HashMap.empty
                 return (story' & storyBlocks %~ (++ [block]))
 
-
--- bumpIncre :: WWT IO (IO ())
--- bumpIncre = do
---     increMv <- view wwIncre
---     return (Incre.bump =<< readMVar increMv)
-
 authenticated :: WW UserId
 authenticated = do
     authM <- view reqAuth
@@ -196,6 +190,7 @@ wordwang = do
             case candsM of
                 Just _ -> return ()
                 Nothing -> do
+                    wwBump .= True
                     respond (respToAll (RespCandidate cand))
                     wwStory %= (storyCandidates.at uid ?~ cand)
         ReqVote candUid -> do
@@ -203,6 +198,7 @@ wordwang = do
             candM <- use (wwStory . storyCandidates . at candUid)
             case candM of
                 Just cand | not (HashSet.member voteUid (cand^.candVotes)) -> do
+                    wwBump .= True
                     respond (respToAll (RespVote candUid voteUid))
                     let cand' = cand & candVotes %~ HashSet.insert voteUid
                     wwStory %= (storyCandidates.at candUid ?~ cand')

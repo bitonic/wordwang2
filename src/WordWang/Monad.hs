@@ -32,7 +32,7 @@ data WWState = WWState
     { _wwStory :: Story
     , _wwResps :: Bwd (Resp ())
     , _wwBump  :: Bool
-    }
+    } deriving (Eq, Show)
 
 makeLenses ''WWState
 
