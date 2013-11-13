@@ -44,13 +44,15 @@ import           WordWang.Monad
 import           WordWang.Objects
 import           WordWang.Utils
 import           WordWang.Bwd
-import           WordWang.Queue (Queue)
-import qualified WordWang.Queue as Queue
 import           WordWang.Incremental (Incremental)
 import qualified WordWang.Incremental as Incre
+import           WordWang.Worker (Worker(..))
+import qualified WordWang.Worker as Worker
 
-type StoryThings =
-    (MVar (Story, Maybe Incremental), MVar [WS.Connection], Queue (Resp WS.Connection))
+type StoryThings = ( MVar (Story, Maybe Incremental)
+                   , MVar [WS.Connection]
+                   , Worker.Ref (Resp WS.Connection)
+                   )
 
 type Stories = MVar (HashMap StoryId StoryThings)
 
@@ -68,9 +70,9 @@ makeSecret = do
 -- 'putMVar' and 'takeMVar'.  It would be better for this game to be
 -- self-contained in some module to make it less fragile.
 
-startIncre :: MVar (Story, Maybe Incremental) -> Queue (Resp WS.Connection)
+startIncre :: MVar (Story, Maybe Incremental) -> Worker.Ref (Resp WS.Connection)
            -> IO Incremental
-startIncre storyMv queue = do
+startIncre storyMv worker = do
     incre <- Incre.start startT halveMaybe
     forkIO $ do
         Incre.wait incre
@@ -89,7 +91,7 @@ startIncre storyMv queue = do
             cands@(_:_) -> do
                 let cand  = maximumBy (comparing (HashSet.size . _candVotes)) cands
                     block = cand^.candBlock
-                Queue.write queue (respToAll (RespVotingClosed block))
+                Worker.send worker (respToAll (RespVotingClosed block))
                 let story' = story & storyCandidates .~ HashMap.empty
                 return (story' & storyBlocks %~ (++ [block]))
 
@@ -115,22 +117,26 @@ createStory storiesMv = do
         sid <- randomIO
         storyMv <- newMVar (emptyStory sid, Nothing)
         connsMv <- newMVar []
-        queue <- Queue.new
-        forkIO (goQueue connsMv queue)
-        return (HashMap.insert sid (storyMv, connsMv, queue) stories, sid)
+        workerRef <- Worker.run Worker
+            { workerName    = Text.pack (show sid)
+            , workerStart   = return ()
+            , workerRestart = \() _ -> return (Right ())
+            , workerProcess = \() -> process connsMv
+            }
+        return (HashMap.insert sid (storyMv, connsMv, workerRef) stories, sid)
 
-    goQueue connsMv queue = do
-        resps <- Queue.flush queue
+    process connsMv resps = do
         let (forAll, forThis) =
                 flip eitherUnzip (toList resps) $ \resp ->
                 case resp^.respRecipients of
                     All       -> Left  (resp^.respBody)
                     This conn -> Right (conn, resp^.respBody)
         modifyMVar_ connsMv $ \conns -> flip filterM conns $ \conn' ->
-            (True <$ mapM_ (sendJSON conn') forAll) `catch`
-            \(_ :: WS.ConnectionException) -> return False
-        mapM_ (uncurry sendJSON) forThis
-        goQueue connsMv queue
+            ignoreClosed (mapM_ (sendJSON conn') forAll)
+        mapM_ (ignoreClosed . uncurry sendJSON) forThis
+
+    ignoreClosed m =
+        (True <$ m) `catch` \(_ :: WS.ConnectionException) -> return False
 
 serverWW :: Stories -> WW () -> WS.ServerApp
 serverWW storiesMv m pending = do
@@ -154,7 +160,7 @@ serverWW storiesMv m pending = do
             Nothing -> do
                 sendErr conn NoStory
                 go conn isReg
-            Just (storyMv, connsMv, queue) -> do
+            Just (storyMv, connsMv, worker) -> do
                 unless isReg (modifyMVar_ connsMv (return . (conn :)))
                 modifyMVar_ storyMv $ \(story, increM) -> do
                     (res, wwst) <- runWW req story m
@@ -162,9 +168,9 @@ serverWW storiesMv m pending = do
                         resps1 = either ((resps0 :<) . respToThis . RespError)
                                         (const resps0) res
                         resps2 = (respRecipients %~ fmap (const conn)) <$> resps1
-                    mapM_ (Queue.write queue) (toList resps2)
+                    mapM_ (Worker.send worker) (toList resps2)
                     increM' <- case (increM, wwst^.wwBump) of
-                        (Nothing, True) -> Just <$> startIncre storyMv queue
+                        (Nothing, True) -> Just <$> startIncre storyMv worker
                         (Just incre, True) -> Just incre <$ Incre.bump incre
                         _ -> return increM
                     return (wwst^.wwStory, increM')

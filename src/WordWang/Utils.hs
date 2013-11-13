@@ -8,6 +8,7 @@ module WordWang.Utils
     , parseUnary
     , sendJSON
     , debugMsg
+    , infoMsg
     , errorMsg
     , eitherUnzip
     , Only(..)
@@ -97,6 +98,9 @@ stderrMsg pre fmt pars = liftIO (TL.hPutStrLn stderr (pre <> format fmt pars))
 
 debugMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
 debugMsg = stderrMsg "[DEBUG] "
+
+infoMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
+infoMsg = stderrMsg "[INFO] "
 
 errorMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
 errorMsg = stderrMsg "[ERROR] "
