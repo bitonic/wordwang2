@@ -4,6 +4,7 @@ module WordWang.Monad
       WWState(..)
     , wwStory
     , wwResps
+    , wwBump
 
       -- * The monad
     , WW
@@ -16,12 +17,12 @@ module WordWang.Monad
 
 import           Control.Applicative (Applicative)
 
-import           Control.Monad.Reader (ReaderT(..), MonadReader)
-import           Control.Monad.State (StateT, runStateT, MonadState)
+import           Control.Monad.Reader (ReaderT(..), MonadReader(..))
+import           Control.Monad.State (StateT(..), runStateT, MonadState(..))
 import           Control.Monad.Trans (MonadIO)
-import           Control.Monad.Trans.Either (EitherT(..))
 
 import           Control.Lens
+import           Control.Monad.Trans.Either (EitherT(..))
 
 import           WordWang.Messages
 import           WordWang.Objects
@@ -30,6 +31,7 @@ import           WordWang.Bwd
 data WWState = WWState
     { _wwStory :: Story
     , _wwResps :: Bwd (Resp ())
+    , _wwBump  :: Bool
     }
 
 makeLenses ''WWState
@@ -42,6 +44,7 @@ runWW :: forall a. Req -> Story -> WW a -> IO (Either RespError a, WWState)
 runWW req story m = do
     let wwst = WWState{ _wwStory = story
                       , _wwResps = B0
+                      , _wwBump  = False
                       }
     flip runStateT wwst . flip runReaderT req . runEitherT . unWW $ m
 

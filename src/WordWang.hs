@@ -28,7 +28,6 @@ import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.HashSet as HashSet
 import qualified Data.Text as Text
-import           Data.Time (getCurrentTime)
 import           System.Random (randomIO)
 
 import           Control.Lens
@@ -47,12 +46,13 @@ import           WordWang.Utils
 import           WordWang.Bwd
 import           WordWang.Queue (Queue)
 import qualified WordWang.Queue as Queue
+import           WordWang.Incremental (Incremental)
+import qualified WordWang.Incremental as Incre
 
-type Stories =
-    MVar (HashMap StoryId ( MVar Story
-                          , MVar [WS.Connection]
-                          , Queue (Resp WS.Connection)
-                          ))
+type StoryThings =
+    (MVar (Story, Maybe Incremental), MVar [WS.Connection], Queue (Resp WS.Connection))
+
+type Stories = MVar (HashMap StoryId StoryThings)
 
 internalError :: Text -> WW a
 internalError = terminate . InternalError
@@ -68,32 +68,30 @@ makeSecret = do
 -- 'putMVar' and 'takeMVar'.  It would be better for this game to be
 -- self-contained in some module to make it less fragile.
 
--- startIncre :: WWT IO (IO ())
--- startIncre = do
---     increMv <- view wwIncre
---     storyMv <- view wwStory
---     resp <- respondInIO
---     return $ do
---         incre <- Incre.start startT halveMaybe
---         putMVar increMv incre
---         void $ forkIO $
---             Incre.wait incre >> takeMVar increMv >> closeVoting storyMv resp
---   where
---     startT = 10000000
+startIncre :: MVar (Story, Maybe Incremental) -> Queue (Resp WS.Connection)
+           -> IO Incremental
+startIncre storyMv queue = do
+    incre <- Incre.start startT halveMaybe
+    forkIO $ do
+        Incre.wait incre
+        modifyMVar_ storyMv $ \(story, _increM) ->
+            (, Nothing) <$> closeVoting story
+    return incre
+  where
+    startT = 10000000
 
---     halveMaybe n | n >= startT `div` 2 = Just (n `div` 2)
---     halveMaybe _ = Nothing
+    halveMaybe n | n >= 500000 = Just (n - (n `div` 3))
+    halveMaybe _ = Nothing
 
---     closeVoting storyMv resp = modifyMVar_ storyMv $ \story ->
---         case HashMap.elems (story^.storyCandidates) of
---             [] -> return story -- TODO should we return an error?
---             cands@(_:_) -> do
---                 let cand  = maximumBy (comparing (HashSet.size . _candVotes))
---                                       cands
---                     block = cand^.candBlock
---                 resp (respToAll (RespVotingClosed block))
---                 let story' = story & storyCandidates .~ HashMap.empty
---                 return (story' & storyBlocks %~ (++ [block]))
+    closeVoting story =
+        case HashMap.elems (story^.storyCandidates) of
+            [] -> return story -- TODO should we return an error?
+            cands@(_:_) -> do
+                let cand  = maximumBy (comparing (HashSet.size . _candVotes)) cands
+                    block = cand^.candBlock
+                Queue.write queue (respToAll (RespVotingClosed block))
+                let story' = story & storyCandidates .~ HashMap.empty
+                return (story' & storyBlocks %~ (++ [block]))
 
 
 -- bumpIncre :: WWT IO (IO ())
@@ -121,7 +119,7 @@ createStory storiesMv = do
   where
     go = modifyMVar storiesMv $ \stories -> do
         sid <- randomIO
-        storyMv <- newMVar (emptyStory sid)
+        storyMv <- newMVar (emptyStory sid, Nothing)
         connsMv <- newMVar []
         queue <- Queue.new
         forkIO (goQueue connsMv queue)
@@ -164,14 +162,18 @@ serverWW storiesMv m pending = do
                 go conn isReg
             Just (storyMv, connsMv, queue) -> do
                 unless isReg (modifyMVar_ connsMv (return . (conn :)))
-                modifyMVar_ storyMv $ \story -> do
+                modifyMVar_ storyMv $ \(story, increM) -> do
                     (res, wwst) <- runWW req story m
-                    let resps   = wwst^.wwResps
-                        resps'  = either ((resps :<) . respToThis . RespError)
-                                         (const resps) res
-                        resps'' = (respRecipients %~ fmap (const conn)) <$> resps'
-                    mapM_ (Queue.write queue) (toList resps'')
-                    return (wwst^.wwStory)
+                    let resps0 = wwst^.wwResps
+                        resps1 = either ((resps0 :<) . respToThis . RespError)
+                                        (const resps0) res
+                        resps2 = (respRecipients %~ fmap (const conn)) <$> resps1
+                    mapM_ (Queue.write queue) (toList resps2)
+                    increM' <- case (increM, wwst^.wwBump) of
+                        (Nothing, True) -> Just <$> startIncre storyMv queue
+                        (Just incre, True) -> Just incre <$ Incre.bump incre
+                        _ -> return increM
+                    return (wwst^.wwStory, increM')
                 go conn True
 
     sendErr conn err = sendJSON conn (RespError err)

@@ -68,7 +68,7 @@ data RespRecipients conn = All | This conn
 data Resp conn = Resp
     { _respRecipients :: !(RespRecipients conn)
     , _respBody       :: !RespBody
-    } deriving (Eq, Show)
+    } deriving (Eq, Show, Functor, Foldable, Traversable)
 
 data RespError
     = StoryNotPresent !StoryId
@@ -108,7 +108,7 @@ respStory story = RespStory UserStory
 respToThis :: RespBody -> Resp ()
 respToThis body = Resp{_respRecipients = This (), _respBody = body}
 
-respToAll :: RespBody -> Resp ()
+respToAll :: RespBody -> Resp a
 respToAll body = Resp{_respRecipients = All, _respBody = body}
 
 respError :: RespError -> Resp ()

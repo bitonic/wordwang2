@@ -1,7 +1,7 @@
 module WordWang.Incremental where
 
 import           Control.Concurrent (forkIO, threadDelay)
-import           Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, modifyMVar_, modifyMVar, readMVar)
+import           Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, modifyMVar_, modifyMVar, readMVar, putMVar)
 
 import           Data.List.NonEmpty (NonEmpty(..))
 
@@ -32,7 +32,7 @@ start x f = do
                 Yes (t :| ts) -> (No t, Just (sum (t : ts)))
                 No _          -> (error "the impossible happened", Nothing)
         case isDone of
-            Nothing -> return ()
+            Nothing -> putMVar done () >> return ()
             Just t  -> threadDelay t >> worker cont done
 
 bump :: Incremental -> IO ()
