@@ -16,7 +16,7 @@ import           Control.Applicative ((<*>))
 import           Control.Concurrent (forkIO)
 import           Control.Concurrent.MVar (MVar, newMVar, modifyMVar_, modifyMVar, readMVar)
 import           Control.Exception (catch)
-import           Control.Monad (filterM, unless)
+import           Control.Monad (filterM, unless, when)
 import           Data.Foldable (toList)
 import           Data.Functor ((<$>), (<$))
 import           Data.List (maximumBy)
@@ -49,9 +49,10 @@ import qualified WordWang.Incremental as Incre
 import           WordWang.Worker (Worker(..))
 import qualified WordWang.Worker as Worker
 
-type StoryThings = ( MVar (Story, Maybe Incremental)
+type StoryThings = ( MVar Story
                    , MVar [WS.Connection]
                    , Worker.Ref (Resp WS.Connection)
+                   , Worker.Ref IncreWorkerMsg
                    )
 
 type Stories = MVar (HashMap StoryId StoryThings)
@@ -66,34 +67,47 @@ makeSecret = do
         Left err -> internalError (Text.pack (show err))
         Right (bs, _) -> return (Base64.URL.encode bs)
 
--- TODO the Incremental stuff relies on the interplay between the
--- 'putMVar' and 'takeMVar'.  It would be better for this game to be
--- self-contained in some module to make it less fragile.
+data IncreWorkerMsg = Done | Bump
 
-startIncre :: MVar (Story, Maybe Incremental) -> Worker.Ref (Resp WS.Connection)
-           -> IO Incremental
-startIncre storyMv worker = do
-    incre <- Incre.start startT halveMaybe
-    forkIO $ do
-        Incre.wait incre
-        modifyMVar_ storyMv $ \(story, _increM) ->
-            (, Nothing) <$> closeVoting story
-    return incre
+increWorker :: MVar Story -> Worker.Ref (Resp WS.Connection)
+            -> IO (Worker.Send IncreWorkerMsg -> Worker (Maybe Incremental) IncreWorkerMsg)
+increWorker storyMv respWorker = do
+    sid <- _storyId <$> readMVar storyMv
+    return $ \send -> Worker
+        { workerName    = Text.pack (show sid ++ "-incre")
+        , workerStart   = return Nothing
+        , workerRestart = \_ _ -> return (Left "increWorker: shouldn't terminate")
+        , workerProcess = process send
+        }
   where
     startT = 10000000
 
     halveMaybe n | n >= 500000 = Just (n - (n `div` 3))
     halveMaybe _ = Nothing
 
-    closeVoting story =
-        case HashMap.elems (story^.storyCandidates) of
-            [] -> return story -- TODO should we return an error?
-            cands@(_:_) -> do
-                let cand  = maximumBy (comparing (HashSet.size . _candVotes)) cands
-                    block = cand^.candBlock
-                Worker.send worker (respToAll (RespVotingClosed block))
-                let story' = story & storyCandidates .~ HashMap.empty
-                return (story' & storyBlocks %~ (++ [block]))
+    process _ increM [] = return increM
+    process send Nothing (Bump : msgs) = do
+        incre <- Incre.start startT halveMaybe
+        -- TODO are we sure this terminates?
+        forkIO $ do
+            Incre.wait incre
+            send Done
+        process send (Just incre) msgs
+    process send (Just incre) (Bump : msgs) = do
+        Incre.bump incre
+        process send (Just incre) msgs
+    process send increM (Done : msgs) = do
+        maybe (return ()) Incre.stop increM
+        modifyMVar_ storyMv $ \story -> do
+            case HashMap.elems (story^.storyCandidates) of
+                [] -> error "increWorker: incremental terminated with no candidates!"
+                cands@(_:_) -> do
+                    let cand  = maximumBy (comparing (HashSet.size . _candVotes)) cands
+                        block = cand^.candBlock
+                    Worker.send respWorker (respToAll (RespVotingClosed block))
+                    let story' = story & storyCandidates .~ HashMap.empty
+                    return (story' & storyBlocks %~ (++ [block]))
+        process send Nothing msgs
 
 authenticated :: WW UserId
 authenticated = do
@@ -115,15 +129,16 @@ createStory storiesMv = do
   where
     go = modifyMVar storiesMv $ \stories -> do
         sid <- randomIO
-        storyMv <- newMVar (emptyStory sid, Nothing)
+        storyMv <- newMVar (emptyStory sid)
         connsMv <- newMVar []
-        workerRef <- Worker.run Worker
-            { workerName    = Text.pack (show sid)
+        respsWRef <- Worker.run $ \_ -> Worker
+            { workerName    = Text.pack (show sid ++ "-resps")
             , workerStart   = return ()
             , workerRestart = \() _ -> return (Right ())
             , workerProcess = \() -> process connsMv
             }
-        return (HashMap.insert sid (storyMv, connsMv, workerRef) stories, sid)
+        increWRef <- Worker.run =<< increWorker storyMv respsWRef
+        return (HashMap.insert sid (storyMv, connsMv, respsWRef, increWRef) stories, sid)
 
     process connsMv resps = do
         let (forAll, forThis) =
@@ -160,20 +175,17 @@ serverWW storiesMv m pending = do
             Nothing -> do
                 sendErr conn NoStory
                 go conn isReg
-            Just (storyMv, connsMv, worker) -> do
+            Just (storyMv, connsMv, respsWorker, incrWorker) -> do
                 unless isReg (modifyMVar_ connsMv (return . (conn :)))
-                modifyMVar_ storyMv $ \(story, increM) -> do
+                modifyMVar_ storyMv $ \story -> do
                     (res, wwst) <- runWW req story m
                     let resps0 = wwst^.wwResps
                         resps1 = either ((resps0 :<) . respToThis . RespError)
                                         (const resps0) res
                         resps2 = (respRecipients %~ fmap (const conn)) <$> resps1
-                    mapM_ (Worker.send worker) (toList resps2)
-                    increM' <- case (increM, wwst^.wwBump) of
-                        (Nothing, True) -> Just <$> startIncre storyMv worker
-                        (Just incre, True) -> Just incre <$ Incre.bump incre
-                        _ -> return increM
-                    return (wwst^.wwStory, increM')
+                    mapM_ (Worker.send respsWorker) (toList resps2)
+                    when (wwst^.wwBump) (Worker.send incrWorker Bump)
+                    return (wwst^.wwStory)
                 go conn True
 
     sendErr conn err = sendJSON conn (RespError err)
@@ -209,6 +221,7 @@ wordwang = do
                     let cand' = cand & candVotes %~ HashSet.insert voteUid
                     wwStory %= (storyCandidates.at candUid ?~ cand')
                 _ -> return ()
+        -- TODO for debugging, remove soon
         ReqCloseVoting -> do
             authenticated
             story <- use wwStory

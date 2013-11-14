@@ -3,6 +3,7 @@ module WordWang.Worker
      , Worker(..)
      , WorkerNotRestarting
      , Ref
+     , Send
      , run
      , send
      , kill
@@ -37,14 +38,17 @@ data Ref a = Ref
     , refQueue    :: Queue a
     }
 
-run :: Worker st a -> IO (Ref a)
-run (Worker name start restart process) = do
-    st <- start
+type Send a = a -> IO ()
+
+run :: (Send a -> Worker st a) -> IO (Ref a)
+run f = do
     queue <- Queue.new
-    tid <- forkIO (go queue st)
+    let Worker name start restart process = f (Queue.write queue)
+    st <- start
+    tid <- forkIO (go name restart process queue st)
     return (Ref tid queue)
   where
-    go queue st = do
+    go name restart process queue st = do
         xs <- Queue.flush queue
         st' <- catches (process st xs)
                    [ Handler $ \(e :: AsyncException) -> throwIO e
@@ -53,11 +57,10 @@ run (Worker name start restart process) = do
                           either (throwIO . WorkerNotRestarting name) return =<<
                               restart st e
                    ]
-        go queue st'
+        go name restart process queue st'
 
-send :: Ref a -> a -> IO ()
+send :: Ref a -> Send a
 send ref = Queue.write (refQueue ref)
 
 kill :: Ref a -> IO ()
 kill = killThread . refThreadId
-

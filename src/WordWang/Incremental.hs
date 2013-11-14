@@ -1,7 +1,14 @@
-module WordWang.Incremental where
+module WordWang.Incremental
+    ( Incremental
+    , start
+    , bump
+    , wait
+    , stop
+    ) where
 
-import           Control.Concurrent (forkIO, threadDelay)
-import           Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, modifyMVar_, modifyMVar, readMVar, putMVar)
+import           Control.Concurrent (forkIO, threadDelay, killThread, ThreadId)
+import           Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, modifyMVar_, modifyMVar, readMVar, putMVar, tryPutMVar)
+import           Control.Monad (void)
 
 import           Data.List.NonEmpty (NonEmpty(..))
 
@@ -12,6 +19,7 @@ data Incremental = Incremental
     , incrDone     :: MVar ()
     , incrFirst    :: Int
     , incrNext     :: Int -> Maybe Int
+    , incrTid      :: ThreadId
     }
 
 start :: Int -> (Int -> Maybe Int) -> IO Incremental
@@ -24,6 +32,7 @@ start x f = do
                       , incrDone     = done
                       , incrFirst    = x
                       , incrNext     = f
+                      , incrTid      = tid
                       }
   where
     worker cont done = do
@@ -44,3 +53,8 @@ bump Incremental{incrContinue = cont, incrNext = f} =
 
 wait :: Incremental -> IO ()
 wait Incremental{incrDone = done} = readMVar done
+
+stop :: Incremental -> IO ()
+stop Incremental{incrDone = done, incrTid = tid} = do
+    tryPutMVar done ()
+    void $ killThread tid
