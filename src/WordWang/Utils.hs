@@ -1,11 +1,14 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE ExistentialQuantification #-}
 module WordWang.Utils
     ( delPrefix
     , wwJSON
     , mapKeyVal
-    , tagObj
+    , toTaggedJSON
     , parseTagged
     , parseNullary
     , parseUnary
+    , parseBinary
     , sendJSON
     , debugMsg
     , infoMsg
@@ -13,6 +16,7 @@ module WordWang.Utils
     , eitherUnzip
     , Only(..)
     , Shown(..)
+    , JSONP(JSONP)
     ) where
 
 import           Control.Arrow (first, second)
@@ -28,13 +32,20 @@ import           Data.Hashable (Hashable)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Builder as TL
+import qualified Data.Text.Lazy.Encoding as TL
 import qualified Data.Text.Lazy.IO as TL
 
+import qualified Blaze.ByteString.Builder as Builder
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import           Data.String.Combinators (quotes)
+import           Data.Text.Buildable (Buildable(..))
 import           Data.Text.Format (Format, Only(..), Shown(..), format)
 import           Data.Text.Format.Params (Params)
+import           Data.UUID (UUID)
+import qualified Data.UUID as UUID
+import qualified Database.PostgreSQL.Simple.ToField as PG
 import qualified Network.WebSockets as WS
 
 delPrefix :: String -> String -> String
@@ -60,8 +71,8 @@ mapKeyVal fk kv =
     HashMap.foldrWithKey (\k v -> HashMap.insert (fk k) (kv v)) HashMap.empty
 {-# INLINE mapKeyVal #-}
 
-tagObj :: Text -> [Aeson.Pair] -> Aeson.Value
-tagObj tag obj = Aeson.object $ (("tag" Aeson..= tag) : obj)
+toTaggedJSON :: (a -> (Text, [Aeson.Pair])) -> a -> Aeson.Value
+toTaggedJSON f (f -> (tag, obj)) = Aeson.object $ (("tag" Aeson..= tag) : obj)
 
 parseTagged :: [(Text, Aeson.Object -> Aeson.Parser a)]
             -> Aeson.Value -> Aeson.Parser a
@@ -88,9 +99,19 @@ parseUnary f field obj | Just x <- HashMap.lookup field obj = do
 parseUnary _ _ _ =
     fail "unary: expecting one field"
 
+parseBinary :: (Aeson.FromJSON a, Aeson.FromJSON b)
+            => (a -> b -> c) -> Text -> Text -> Aeson.Object -> Aeson.Parser c
+parseBinary f field1 field2 obj | Just x1 <- HashMap.lookup field1 obj
+                                , Just x2 <- HashMap.lookup field2 obj = do
+    x1' <- Aeson.parseJSON x1
+    x2' <- Aeson.parseJSON x2
+    parseNullary (f x1' x2') (HashMap.delete field1 (HashMap.delete field2 obj))
+parseBinary _ _ _ _ =
+    fail "binary: expecting two fields"
+
 sendJSON :: (Aeson.ToJSON a, Show a) => WS.Connection -> a -> IO ()
 sendJSON conn req = do
-    debugMsg "sending response `{}'" (Only (Shown req))
+    debugMsg "sending response `{}'" (Only (JSONP req))
     WS.sendTextData conn (Aeson.encode req)
 
 stderrMsg :: (MonadIO m, Params ps) => TL.Text -> Format -> ps -> m ()
@@ -109,3 +130,11 @@ eitherUnzip :: (a -> Either b c) -> [a] -> ([b], [c])
 eitherUnzip _ [] = ([], [])
 eitherUnzip f (x : xs) =
     either (first . (:)) (second . (:)) (f x) (eitherUnzip f xs)
+
+instance PG.ToField UUID where
+    toField = PG.Plain . Builder.fromByteString . UUID.toASCIIBytes
+
+newtype JSONP a = JSONP {unJSONP :: a}
+
+instance Aeson.ToJSON a => Buildable (JSONP a) where
+    build = TL.fromLazyText . TL.decodeUtf8 . Aeson.encode . unJSONP

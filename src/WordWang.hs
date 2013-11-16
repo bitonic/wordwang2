@@ -165,7 +165,7 @@ serverWW storiesMv m pending = do
                 sendErr conn (ErrorDecodingReq (Text.pack err))
                 go conn isReg
             Right (req :: Req) -> do
-                debugMsg "received request `{}'" (Only (Shown req))
+                debugMsg "received request `{}'" (Only (JSONP req))
                 handleReq conn isReg req
 
     handleReq conn isReg req = do

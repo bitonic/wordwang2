@@ -27,12 +27,14 @@ library
                    , DRBG                 >= 0.5
                    , aeson                >= 0.6
                    , base64-bytestring    >= 1.0
+                   , blaze-builder        >= 0.3
                    , bytestring           >= 0.10
                    , crypto-api           >= 0.3
                    , either               >= 3.4
                    , hashable             >= 1.1
                    , lens                 >= 3.10
                    , mtl                  >= 2.1
+                   , postgresql-simple    >= 0.3
                    , random               >= 1.0
                    , semigroups           >= 0.11
                    , snap                 >= 0.13
@@ -48,6 +50,7 @@ library
                    , DeriveFunctor
                    , DeriveTraversable
                    , FlexibleInstances
+                   , LambdaCase
                    , OverloadedStrings
                    , PatternGuards
                    , RankNTypes

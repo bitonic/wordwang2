@@ -116,8 +116,16 @@ respError err = respToThis (RespError err)
 
 ----------------------------------------------------------------------
 
-Aeson.deriveFromJSON (wwJSON $ delPrefix "_req")      ''Req
-Aeson.deriveFromJSON (wwJSON $ delPrefix "_reqAuth")  ''ReqAuth
+Aeson.deriveJSON (wwJSON $ delPrefix "_req")      ''Req
+Aeson.deriveJSON (wwJSON $ delPrefix "_reqAuth")  ''ReqAuth
+
+instance Aeson.ToJSON ReqBody where
+    toJSON = toTaggedJSON $ \case
+        ReqJoin           -> ("join",        [])
+        ReqCandidate cand -> ("candidate",   ["body" .= cand])
+        ReqVote vote      -> ("vote",        ["user" .= vote])
+        ReqStory          -> ("story",       [])
+        ReqCloseVoting    -> ("closeVoting", [])
 
 instance Aeson.FromJSON ReqBody where
     parseJSON = parseTagged
@@ -128,40 +136,50 @@ instance Aeson.FromJSON ReqBody where
         , ("closeVoting", parseNullary ReqCloseVoting)
         ]
 
-Aeson.deriveToJSON (wwJSON $ delPrefix "_uStory") ''UserStory
-
 instance Aeson.ToJSON RespBody where
-    toJSON (RespStory story) = tagObj "story" ["body" .= Aeson.toJSON story]
-    toJSON (RespJoined uid secret) =
-        tagObj "joined" [ "user"   .= Aeson.toJSON uid
-                        , "secret" .= Aeson.toJSON secret
-                        ]
-    toJSON (RespUser uid) = tagObj "user" [ "user" .= Aeson.toJSON uid ]
-    toJSON (RespCreated sid) = tagObj "created" ["story" .= Aeson.toJSON sid]
-    toJSON (RespVotingClosed block) =
-        tagObj "votingClosed" ["block" .= Aeson.toJSON block]
-    toJSON (RespCandidate cand) =
-        tagObj "candidate" ["body" .= Aeson.toJSON cand]
-    toJSON (RespVote candUid voteUid) =
-        tagObj "vote" [ "candidate" .= Aeson.toJSON candUid
-                      , "vote"      .= Aeson.toJSON voteUid
-                      ]
-    toJSON (RespError err) = tagObj "error" (("type" .= ty) : ob)
-      where
-        (ty :: Text, ob) = errorObj err
+    toJSON = toTaggedJSON $ \case
+        RespStory story          -> ("story",        ["body" .= story])
+        RespError err            -> ("error",        ["error" .= err])
+        RespJoined uid secret    -> ("joined",       ["user" .= uid , "secret" .= secret])
+        RespUser uid             -> ("user",         ["user" .= uid])
+        RespCreated sid          -> ("created",      ["story" .= sid])
+        RespVotingClosed block   -> ("votingClosed", ["block" .= block])
+        RespCandidate cand       -> ("candidate",    ["body" .= cand])
+        RespVote candUid voteUid -> ("vote",         ["candidate" .= candUid , "vote" .= voteUid])
 
-        errorObj (StoryNotPresent sid) =
-            ("storyNotPresent", ["story" .= Aeson.toJSON sid])
-        errorObj (InternalError msg) =
-            ("internalError", ["msg" .= Aeson.toJSON msg])
-        errorObj NoCredentials =
-            ("noCredentials", [])
-        errorObj InvalidCredentials =
-            ("invalidCredentials", [])
-        errorObj (ErrorDecodingReq t) =
-            ("errorDecodingReq", ["msg" .= Aeson.toJSON t])
-        errorObj NoStory =
-            ("noStory", [])
+instance Aeson.FromJSON RespBody where
+    parseJSON = parseTagged
+        [ ("story",        parseUnary  RespStory "body")
+        , ("joined",       parseBinary RespJoined "user" "secret")
+        , ("user",         parseUnary  RespUser "user")
+        , ("created",      parseUnary  RespCreated "story")
+        , ("votingClosed", parseUnary  RespVotingClosed "block")
+        , ("candidate",    parseUnary  RespCandidate "body")
+        , ("vote",         parseBinary RespVote "candidate" "vote")
+        , ("error",        parseUnary  RespError "error")
+        ]
+
+instance Aeson.ToJSON RespError where
+    toJSON = toTaggedJSON $ \case
+        StoryNotPresent sid -> ("storyNotPresent",    ["story" .= sid])
+        InternalError msg   -> ("internalError",      ["msg" .= msg])
+        NoCredentials       -> ("noCredentials",      [])
+        InvalidCredentials  -> ("invalidCredentials", [])
+        ErrorDecodingReq t  -> ("errorDecodingReq",   ["msg" .= Aeson.toJSON t])
+        NoStory             -> ("noStory",            [])
+
+instance Aeson.FromJSON RespError where
+    parseJSON = parseTagged
+        [ ("storyNotPresent",    parseUnary   StoryNotPresent "story")
+        , ("internalError",      parseUnary   InternalError "msg")
+        , ("noCredentials",      parseNullary NoCredentials)
+        , ("invalidCredentials", parseNullary InvalidCredentials)
+        , ("errorDecodingReq",   parseUnary   ErrorDecodingReq "msg")
+        , ("noStory",            parseNullary NoStory)
+        ]
+
+
+Aeson.deriveJSON (wwJSON $ delPrefix "_uStory") ''UserStory
 
 ----------------------------------------------------------------------
 

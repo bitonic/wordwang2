@@ -1,3 +1,4 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module WordWang.Objects
     ( Text
 
@@ -44,11 +45,12 @@ import           Control.Lens (makeLenses)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson
 import qualified Data.UUID as UUID
+import qualified Database.PostgreSQL.Simple.ToField as PG
 
 import           WordWang.Utils
 
 newtype Id = Id {unId :: UUID.UUID}
-    deriving (Eq, Ord)
+    deriving (Eq, Ord, PG.ToField)
 
 instance Show Id where
     showsPrec n = showsPrec n . unId
