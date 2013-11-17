@@ -52,8 +52,8 @@ pgWorker sid ci = Worker
            conn <- PG.connect ci
            PG.execute conn
                [sql| INSERT INTO stories (id)
-                       SELECT (?) FROM stories
-                         WHERE NOT EXISTS (SELECT id FROM stories WHERE id = ?)
+                       SELECT ?
+                         WHERE NOT EXISTS (SELECT id FROM stories WHERE id = ?);
                |]
                (sid, sid)
            return conn
