@@ -44,8 +44,6 @@ respQuery conn sid (RespVote cand vote) = void $
     PG.execute conn
          [sql| INSERT INTO votes VALUES (?, ?, ?) |]
          (sid, cand, vote)
-respQuery _ sid resp@(RespCreated _) =
-    error ("WordWang.PostgreSQL.respQuery: " ++ show sid ++ ", " ++ show resp)
 
 pgWorker :: StoryId -> PG.ConnectInfo -> Worker RespBody
 pgWorker sid ci = Worker
@@ -59,7 +57,8 @@ pgWorker sid ci = Worker
                |]
                (sid, sid)
            return conn
-    , workerRestart = \_conn _ _ -> return (Left (error "TODO handle closed conn"))
+    , workerRestart = \_conn _ e -> print e >>
+                                    return (Left (error "TODO handle closed conn"))
     , workerReceive = \conn resp -> Just conn <$ respQuery conn sid resp
     }
 

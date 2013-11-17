@@ -84,7 +84,6 @@ data RespBody
     | RespError !RespError
     | RespJoined !UserId !UserSecret
     | RespUser !UserId
-    | RespCreated !StoryId
     | RespVotingClosed !Block
     | RespCandidate !Candidate
     | RespVote {- Candidate -} !UserId {- Vote -} !UserId
@@ -142,7 +141,6 @@ instance Aeson.ToJSON RespBody where
         RespError err            -> ("error",        ["error" .= err])
         RespJoined uid secret    -> ("joined",       ["user" .= uid , "secret" .= secret])
         RespUser uid             -> ("user",         ["user" .= uid])
-        RespCreated sid          -> ("created",      ["story" .= sid])
         RespVotingClosed block   -> ("votingClosed", ["block" .= block])
         RespCandidate cand       -> ("candidate",    ["body" .= cand])
         RespVote candUid voteUid -> ("vote",         ["candidate" .= candUid , "vote" .= voteUid])
@@ -152,7 +150,6 @@ instance Aeson.FromJSON RespBody where
         [ ("story",        parseUnary  RespStory "body")
         , ("joined",       parseBinary RespJoined "user" "secret")
         , ("user",         parseUnary  RespUser "user")
-        , ("created",      parseUnary  RespCreated "story")
         , ("votingClosed", parseUnary  RespVotingClosed "block")
         , ("candidate",    parseUnary  RespCandidate "body")
         , ("vote",         parseBinary RespVote "candidate" "vote")
