@@ -9,6 +9,7 @@ module WordWang.Utils
     , parseNullary
     , parseUnary
     , parseBinary
+    , TaggedConn
     , sendJSON
     , debugMsg
     , infoMsg
@@ -25,6 +26,7 @@ import           Control.Concurrent (ThreadId, forkIO, throwTo, myThreadId)
 import           Control.Exception (mask, catch, SomeException)
 import           Control.Monad (when, liftM)
 import           Data.Char (isUpper, toLower)
+import           Data.Int (Int64)
 import           Data.List (stripPrefix)
 import           Data.Monoid ((<>))
 import           System.IO (stderr)
@@ -117,9 +119,11 @@ parseBinary f field1 field2 obj | Just x1 <- HashMap.lookup field1 obj
 parseBinary _ _ _ _ =
     fail "binary: expecting two fields"
 
-sendJSON :: (Aeson.ToJSON a, Show a) => WS.Connection -> a -> IO ()
-sendJSON conn req = do
-    debugMsg "sending response `{}'" (Only (JSONP req))
+type TaggedConn = (WS.Connection, Int64)
+
+sendJSON :: (Aeson.ToJSON a, Show a) => TaggedConn -> a -> IO ()
+sendJSON (conn, connId) req = do
+    debugMsg "[{}] sending response `{}'" (connId, JSONP req)
     WS.sendTextData conn (Aeson.encode req)
 
 stderrMsg :: (MonadIO m, Params ps) => TL.Text -> Format -> ps -> m ()

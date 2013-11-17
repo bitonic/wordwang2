@@ -16,9 +16,11 @@ module WordWang
 import           Control.Applicative ((<*>))
 import           Control.Concurrent.MVar (MVar, newMVar, modifyMVar_, readMVar)
 import           Control.Exception (catch)
-import           Control.Monad (filterM, when, void)
+import           Control.Monad (filterM, when, void, unless)
 import           Data.Foldable (toList)
 import           Data.Functor ((<$>), (<$))
+import           Data.IORef (newIORef, atomicModifyIORef)
+import           Data.Int (Int64)
 import           Data.List (maximumBy)
 import           Data.Ord (comparing)
 
@@ -55,6 +57,8 @@ type StoryThings =
 
 type Stories = MVar (HashMap StoryId StoryThings)
 
+
+
 internalError :: Text -> WW a
 internalError = terminate . InternalError
 
@@ -66,8 +70,8 @@ makeSecret = do
         Right (bs, _) -> return (Base64.URL.encode bs)
 
 data RespWorkerMsg
-    = SendResp (Resp WS.Connection)
-    | AddConn WS.Connection
+    = SendResp (Resp TaggedConn)
+    | AddConn TaggedConn
 
 respWorker :: StoryId -> Worker.Ref RespBody -> Worker RespWorkerMsg
 respWorker sid persistWRef = Worker
@@ -169,40 +173,45 @@ createStory storiesMv = do
 
 serverWW :: Stories -> WW () -> WS.ServerApp
 serverWW storiesMv m pending = do
-    conn <- WS.acceptRequest pending
-    go conn False
+    countRef <- newIORef (0 :: Int64)
+    go countRef
   where
-    go conn isReg = do
-        reqm <- Aeson.eitherDecode <$> WS.receiveData conn
+    go countRef = do
+        conn <- WS.acceptRequest pending
+        connId <- atomicModifyIORef countRef (\c -> (c, c + 1))
+        decodeReq (conn, connId) False
+
+    decodeReq (tagConn :: TaggedConn) isReg = do
+        reqm <- Aeson.eitherDecode <$> WS.receiveData (fst tagConn)
         case reqm of
             Left err -> do
-                sendErr conn (ErrorDecodingReq (Text.pack err))
-                go conn isReg
+                sendErr tagConn (ErrorDecodingReq (Text.pack err))
+                decodeReq tagConn isReg
             Right (req :: Req) -> do
-                debugMsg "received request `{}'" (Only (JSONP req))
-                handleReq conn isReg req
+                debugMsg "[{}] received request `{}'" (snd tagConn, JSONP req)
+                handleReq tagConn isReg req
 
-    handleReq conn isReg req = do
+    handleReq tagConn isReg req = do
         let sid = req^.reqStory
         stories <- readMVar storiesMv
         case stories ^. at sid of
             Nothing -> do
-                sendErr conn NoStory
-                go conn isReg
+                sendErr tagConn NoStory
+                decodeReq tagConn isReg
             Just (storyMv, respWRef, incrWRef) -> do
-                Worker.send respWRef (AddConn conn)
+                unless isReg (Worker.send respWRef (AddConn tagConn))
                 modifyMVar_ storyMv $ \story -> do
                     (res, wwst) <- runWW req story m
                     let resps0 = wwst^.wwResps
                         resps1 = either ((resps0 :<) . respToThis . RespError)
-                                        (const resps0) res
-                        resps2 = (respRecipients %~ fmap (const conn)) <$> resps1
+                                 (const resps0) res
+                        resps2 = (respRecipients %~ fmap (const tagConn)) <$> resps1
                     mapM_ (Worker.send respWRef . SendResp) (toList resps2)
                     when (wwst^.wwBump) (Worker.send incrWRef Bump)
                     return (wwst^.wwStory)
-                go conn True
+                decodeReq tagConn True
 
-    sendErr conn err = sendJSON conn (RespError err)
+    sendErr tagConn err = sendJSON tagConn (RespError err)
 
 wordwang :: WW ()
 wordwang = do
