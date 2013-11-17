@@ -16,7 +16,7 @@ module WordWang
 import           Control.Applicative ((<*>))
 import           Control.Concurrent.MVar (MVar, newMVar, modifyMVar_, readMVar)
 import           Control.Exception (catch)
-import           Control.Monad (filterM, unless, when, void)
+import           Control.Monad (filterM, when, void)
 import           Data.Foldable (toList)
 import           Data.Functor ((<$>), (<$))
 import           Data.List (maximumBy)
@@ -50,11 +50,8 @@ import           WordWang.Worker (Worker(..))
 import qualified WordWang.Worker as Worker
 import           WordWang.PostgreSQL
 
-type StoryThings = ( MVar Story
-                   , MVar [WS.Connection]
-                   , Worker.Ref (Resp WS.Connection)
-                   , Worker.Ref IncreWorkerMsg
-                   )
+type StoryThings =
+    (MVar Story, Worker.Ref RespWorkerMsg, Worker.Ref IncreWorkerMsg)
 
 type Stories = MVar (HashMap StoryId StoryThings)
 
@@ -68,17 +65,51 @@ makeSecret = do
         Left err -> internalError (Text.pack (show err))
         Right (bs, _) -> return (Base64.URL.encode bs)
 
+data RespWorkerMsg
+    = SendResp (Resp WS.Connection)
+    | AddConn WS.Connection
+
+respWorker :: StoryId -> Worker.Ref RespBody -> Worker RespWorkerMsg
+respWorker sid persistWRef = Worker
+    { workerName    = Text.pack (show sid ++ "-resp")
+    , workerStart   = return []
+    , workerRestart = \conns _ _ -> return (Right conns)
+    , workerReceive = \conns msg -> case msg of
+           AddConn conn -> return (Just (conn : conns))
+           SendResp resp -> do
+               conns' <- process conns resp
+               Worker.send persistWRef (resp^.respBody)
+               return (Just conns')
+    }
+  where
+    process conns resp =
+        case resp^.respRecipients of
+            All       -> flip filterM conns $ \conn' ->
+                         ignoreClosed (sendJSON conn' (resp^.respBody))
+            This conn -> conns <$
+                         void (ignoreClosed (sendJSON conn (resp^.respBody)))
+
+    ignoreClosed m =
+        (True <$ m) `catch` \(_ :: WS.ConnectionException) -> return False
+
+persistWorker :: StoryId -> IO (Worker RespBody)
+persistWorker sid = do
+    conf <- _cPersist <$> getConfig
+    return $ case conf of
+        NoPersist -> Worker.sink
+        PGPersist ci -> pgWorker sid ci
+
 data IncreWorkerMsg = Done | Bump
 
-increWorker :: MVar Story -> Worker.Ref (Resp WS.Connection)
+increWorker :: MVar Story -> Worker.Ref RespWorkerMsg
             -> IO (Worker.Send IncreWorkerMsg -> Worker IncreWorkerMsg)
-increWorker storyMv respWorker = do
+increWorker storyMv respWRef = do
     sid <- _storyId <$> readMVar storyMv
     return $ \send -> Worker
-        { workerName    = Text.pack (show sid ++ "-incre")
-        , workerStart   = return Nothing
+        { workerName = Text.pack (show sid ++ "-incre")
+        , workerStart = return Nothing
         , workerRestart = \_ _ _ -> return (Left "increWorker: shouldn't terminate")
-        , workerReceive = process send
+        , workerReceive = \increM msg -> (Just <$> process send increM msg)
         }
   where
     startT = 10000000
@@ -102,7 +133,8 @@ increWorker storyMv respWorker = do
                 cands@(_:_) -> do
                     let cand  = maximumBy (comparing (HashSet.size . _candVotes)) cands
                         block = cand^.candBlock
-                    Worker.send respWorker (respToAll (RespVotingClosed block))
+                    Worker.send respWRef
+                        (SendResp (respToAll (RespVotingClosed block)))
                     let story' = story & storyCandidates .~ HashMap.empty
                     return (story' & storyBlocks %~ (++ [block]))
         return increM
@@ -122,31 +154,10 @@ createStory' :: Stories -> Story -> IO ()
 createStory' storiesMv story = modifyMVar_ storiesMv $ \stories -> do
     let sid = story^.storyId
     storyMv <- newMVar story
-    connsMv <- newMVar []
-    persistWRef <- do
-        conf <- _cPersist <$> getConfig
-        Worker.run $ \_ -> case conf of
-            NoPersist -> Worker.sink
-            PGPersist ci -> pgWorker sid ci
-    respsWRef <- Worker.run $ \_ -> Worker
-        { workerName    = Text.pack (show sid ++ "-resps")
-        , workerStart   = return ()
-        , workerRestart = \() _ _ -> return (Right ())
-        , workerReceive = \() resp -> do
-               process connsMv resp
-               Worker.send persistWRef (resp^.respBody)
-        }
-    increWRef <- Worker.run =<< increWorker storyMv respsWRef
-    return (HashMap.insert sid (storyMv, connsMv, respsWRef, increWRef) stories)
-  where
-    process connsMv resp =
-        case resp^.respRecipients of
-            All -> modifyMVar_ connsMv $ \conns -> flip filterM conns $ \conn' ->
-                   ignoreClosed (sendJSON conn' (resp^.respBody))
-            This conn -> void (ignoreClosed (sendJSON conn (resp^.respBody)))
-
-    ignoreClosed m =
-        (True <$ m) `catch` \(_ :: WS.ConnectionException) -> return False
+    persistWRef <- Worker.run . const =<< persistWorker sid
+    respWRef <- Worker.run $ \_ -> respWorker sid persistWRef
+    increWRef <- Worker.run =<< increWorker storyMv respWRef
+    return (HashMap.insert sid (storyMv, respWRef, increWRef) stories)
 
 createStory :: Stories -> Snap ()
 createStory storiesMv = do
@@ -178,16 +189,16 @@ serverWW storiesMv m pending = do
             Nothing -> do
                 sendErr conn NoStory
                 go conn isReg
-            Just (storyMv, connsMv, respsWorker, incrWorker) -> do
-                unless isReg (modifyMVar_ connsMv (return . (conn :)))
+            Just (storyMv, respWRef, incrWRef) -> do
+                Worker.send respWRef (AddConn conn)
                 modifyMVar_ storyMv $ \story -> do
                     (res, wwst) <- runWW req story m
                     let resps0 = wwst^.wwResps
                         resps1 = either ((resps0 :<) . respToThis . RespError)
                                         (const resps0) res
                         resps2 = (respRecipients %~ fmap (const conn)) <$> resps1
-                    mapM_ (Worker.send respsWorker) (toList resps2)
-                    when (wwst^.wwBump) (Worker.send incrWorker Bump)
+                    mapM_ (Worker.send respWRef . SendResp) (toList resps2)
+                    when (wwst^.wwBump) (Worker.send incrWRef Bump)
                     return (wwst^.wwStory)
                 go conn True
 

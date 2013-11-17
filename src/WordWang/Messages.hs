@@ -178,7 +178,6 @@ instance Aeson.FromJSON RespError where
         , ("noStory",            parseNullary NoStory)
         ]
 
-
 Aeson.deriveJSON (wwJSON $ delPrefix "_uStory") ''UserStory
 
 ----------------------------------------------------------------------

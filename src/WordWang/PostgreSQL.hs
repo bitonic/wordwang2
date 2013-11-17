@@ -60,7 +60,7 @@ pgWorker sid ci = Worker
                (sid, sid)
            return conn
     , workerRestart = \_conn _ _ -> return (Left (error "TODO handle closed conn"))
-    , workerReceive = \conn resp -> conn <$ respQuery conn sid resp
+    , workerReceive = \conn resp -> Just conn <$ respQuery conn sid resp
     }
 
 loadStories :: PG.ConnectInfo -> IO [Story]
