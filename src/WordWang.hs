@@ -7,16 +7,16 @@ module WordWang
     , module WordWang.Objects
 
     , Stories
+    , createStory'
     , createStory
     , serverWW
     , wordwang
     ) where
 
 import           Control.Applicative ((<*>))
-import           Control.Concurrent (forkIO)
-import           Control.Concurrent.MVar (MVar, newMVar, modifyMVar_, modifyMVar, readMVar)
+import           Control.Concurrent.MVar (MVar, newMVar, modifyMVar_, readMVar)
 import           Control.Exception (catch)
-import           Control.Monad (filterM, unless, when)
+import           Control.Monad (filterM, unless, when, void)
 import           Data.Foldable (toList)
 import           Data.Functor ((<$>), (<$))
 import           Data.List (maximumBy)
@@ -39,15 +39,16 @@ import qualified Network.WebSockets as WS
 import           Snap (Snap)
 import qualified Snap as Snap
 
+import           WordWang.Config
 import           WordWang.Messages
 import           WordWang.Monad
 import           WordWang.Objects
 import           WordWang.Utils
 import           WordWang.Bwd
-import           WordWang.Incremental (Incremental)
 import qualified WordWang.Incremental as Incre
 import           WordWang.Worker (Worker(..))
 import qualified WordWang.Worker as Worker
+import           WordWang.PostgreSQL
 
 type StoryThings = ( MVar Story
                    , MVar [WS.Connection]
@@ -70,14 +71,14 @@ makeSecret = do
 data IncreWorkerMsg = Done | Bump
 
 increWorker :: MVar Story -> Worker.Ref (Resp WS.Connection)
-            -> IO (Worker.Send IncreWorkerMsg -> Worker (Maybe Incremental) IncreWorkerMsg)
+            -> IO (Worker.Send IncreWorkerMsg -> Worker IncreWorkerMsg)
 increWorker storyMv respWorker = do
     sid <- _storyId <$> readMVar storyMv
     return $ \send -> Worker
         { workerName    = Text.pack (show sid ++ "-incre")
         , workerStart   = return Nothing
-        , workerRestart = \_ _ -> return (Left "increWorker: shouldn't terminate")
-        , workerProcess = process send
+        , workerRestart = \_ _ _ -> return (Left "increWorker: shouldn't terminate")
+        , workerReceive = process send
         }
   where
     startT = 10000000
@@ -85,18 +86,15 @@ increWorker storyMv respWorker = do
     halveMaybe n | n >= 500000 = Just (n - (n `div` 3))
     halveMaybe _ = Nothing
 
-    process _ increM [] = return increM
-    process send Nothing (Bump : msgs) = do
+    process send Nothing Bump = do
         incre <- Incre.start startT halveMaybe
         -- TODO are we sure this terminates?
-        forkIO $ do
+        supervise $ do
             Incre.wait incre
             send Done
-        process send (Just incre) msgs
-    process send (Just incre) (Bump : msgs) = do
-        Incre.bump incre
-        process send (Just incre) msgs
-    process send increM (Done : msgs) = do
+        return (Just incre)
+    process _ (Just incre) Bump = Just incre <$ Incre.bump incre
+    process _ increM Done = do
         maybe (return ()) Incre.stop increM
         modifyMVar_ storyMv $ \story -> do
             case HashMap.elems (story^.storyCandidates) of
@@ -107,7 +105,7 @@ increWorker storyMv respWorker = do
                     Worker.send respWorker (respToAll (RespVotingClosed block))
                     let story' = story & storyCandidates .~ HashMap.empty
                     return (story' & storyBlocks %~ (++ [block]))
-        process send Nothing msgs
+        return increM
 
 authenticated :: WW UserId
 authenticated = do
@@ -120,38 +118,43 @@ authenticated = do
             maybe (terminate InvalidCredentials) (const (return uid))
                   (story^.storyUsers.at uid)
 
-createStory :: Stories -> Snap ()
-createStory storiesMv = do
-    sid <- liftIO go
-    Snap.modifyResponse $
-        Snap.setResponseCode 200 . Snap.setContentType "text/json"
-    Snap.writeLBS (Aeson.encode sid)
+createStory' :: Stories -> Story -> IO ()
+createStory' storiesMv story = modifyMVar_ storiesMv $ \stories -> do
+    let sid = story^.storyId
+    storyMv <- newMVar story
+    connsMv <- newMVar []
+    persistWRef <- do
+        conf <- _cPersist <$> getConfig
+        Worker.run $ \_ -> case conf of
+            NoPersist -> Worker.sink
+            PGPersist ci -> pgWorker sid ci
+    respsWRef <- Worker.run $ \_ -> Worker
+        { workerName    = Text.pack (show sid ++ "-resps")
+        , workerStart   = return ()
+        , workerRestart = \() _ _ -> return (Right ())
+        , workerReceive = \() resp -> do
+               process connsMv resp
+               Worker.send persistWRef (resp^.respBody)
+        }
+    increWRef <- Worker.run =<< increWorker storyMv respsWRef
+    return (HashMap.insert sid (storyMv, connsMv, respsWRef, increWRef) stories)
   where
-    go = modifyMVar storiesMv $ \stories -> do
-        sid <- randomIO
-        storyMv <- newMVar (emptyStory sid)
-        connsMv <- newMVar []
-        respsWRef <- Worker.run $ \_ -> Worker
-            { workerName    = Text.pack (show sid ++ "-resps")
-            , workerStart   = return ()
-            , workerRestart = \() _ -> return (Right ())
-            , workerProcess = \() -> process connsMv
-            }
-        increWRef <- Worker.run =<< increWorker storyMv respsWRef
-        return (HashMap.insert sid (storyMv, connsMv, respsWRef, increWRef) stories, sid)
-
-    process connsMv resps = do
-        let (forAll, forThis) =
-                flip eitherUnzip (toList resps) $ \resp ->
-                case resp^.respRecipients of
-                    All       -> Left  (resp^.respBody)
-                    This conn -> Right (conn, resp^.respBody)
-        modifyMVar_ connsMv $ \conns -> flip filterM conns $ \conn' ->
-            ignoreClosed (mapM_ (sendJSON conn') forAll)
-        mapM_ (ignoreClosed . uncurry sendJSON) forThis
+    process connsMv resp =
+        case resp^.respRecipients of
+            All -> modifyMVar_ connsMv $ \conns -> flip filterM conns $ \conn' ->
+                   ignoreClosed (sendJSON conn' (resp^.respBody))
+            This conn -> void (ignoreClosed (sendJSON conn (resp^.respBody)))
 
     ignoreClosed m =
         (True <$ m) `catch` \(_ :: WS.ConnectionException) -> return False
+
+createStory :: Stories -> Snap ()
+createStory storiesMv = do
+    sid <- liftIO randomIO
+    liftIO (createStory' storiesMv (emptyStory sid))
+    Snap.modifyResponse $
+        Snap.setResponseCode 200 . Snap.setContentType "text/json"
+    Snap.writeLBS (Aeson.encode sid)
 
 serverWW :: Stories -> WW () -> WS.ServerApp
 serverWW storiesMv m pending = do

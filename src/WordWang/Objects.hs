@@ -45,12 +45,13 @@ import           Control.Lens (makeLenses)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson
 import qualified Data.UUID as UUID
+import qualified Database.PostgreSQL.Simple.FromField as PG
 import qualified Database.PostgreSQL.Simple.ToField as PG
 
 import           WordWang.Utils
 
 newtype Id = Id {unId :: UUID.UUID}
-    deriving (Eq, Ord, PG.ToField)
+    deriving (Eq, Ord, PG.ToField, PG.FromField)
 
 instance Show Id where
     showsPrec n = showsPrec n . unId

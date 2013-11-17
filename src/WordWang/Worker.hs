@@ -6,26 +6,27 @@ module WordWang.Worker
      , Send
      , run
      , send
-     , kill
+     , quit
+
+     , sink
      ) where
 
-import           Control.Concurrent (ThreadId, killThread, forkIO)
-import           Control.Exception (Exception, throwIO, catches, Handler(..), AsyncException, SomeException)
+import           Control.Exception (Exception, throwIO, catch, SomeException)
 import           Data.Typeable (Typeable)
 
 import           Data.Text (Text)
 
-import           WordWang.Utils (infoMsg, Only(..))
+import           WordWang.Utils (infoMsg, Only(..), supervise)
 import           WordWang.Queue (Queue)
 import qualified WordWang.Queue as Queue
 
 type Name = Text
 
-data Worker st a = Worker
+data Worker a = forall st. Worker
     { workerName    :: Name
     , workerStart   :: IO st
-    , workerRestart :: st -> SomeException -> IO (Either Text st)
-    , workerProcess :: st -> [a] -> IO st
+    , workerRestart :: st -> a -> SomeException -> IO (Either Text st)
+    , workerReceive :: st -> a -> IO st
     }
 
 data WorkerNotRestarting = WorkerNotRestarting Name Text
@@ -33,34 +34,46 @@ data WorkerNotRestarting = WorkerNotRestarting Name Text
 
 instance Exception WorkerNotRestarting
 
-data Ref a = Ref
-    { refThreadId :: ThreadId
-    , refQueue    :: Queue a
-    }
+data Msg a = Quit | Msg a
+
+data Ref a = Ref {unRef :: Queue (Msg a)}
 
 type Send a = a -> IO ()
 
-run :: (Send a -> Worker st a) -> IO (Ref a)
+run :: (Send a -> Worker a) -> IO (Ref a)
 run f = do
     queue <- Queue.new
-    let Worker name start restart process = f (Queue.write queue)
-    st <- start
-    tid <- forkIO (go name restart process queue st)
-    return (Ref tid queue)
+    case f (Queue.write queue . Msg) of
+        Worker name start restart process -> do
+            st <- start
+            supervise (go name restart process queue st)
+            return (Ref queue)
   where
-    go name restart process queue st = do
-        xs <- Queue.flush queue
-        st' <- catches (process st xs)
-                   [ Handler $ \(e :: AsyncException) -> throwIO e
-                   , Handler $ \(e :: SomeException) -> do
-                          infoMsg "Trying to restart worker {}" (Only name)
-                          either (throwIO . WorkerNotRestarting name) return =<<
-                              restart st e
-                   ]
-        go name restart process queue st'
+    go name restart process queue st0 = goFlush st0
+      where
+        goFlush st = do
+            xs <- Queue.flush queue
+            goProcess st xs
+
+        goProcess st [] = goFlush st
+        goProcess _ (Quit : _) = return ()
+        goProcess st (Msg x : xs) = do
+            st' <- process st x `catch` \(e :: SomeException) -> do
+                infoMsg "Trying to restart worker {}" (Only name)
+                either (throwIO . WorkerNotRestarting name) return =<<
+                    restart st x e
+            goProcess st' xs
 
 send :: Ref a -> Send a
-send ref = Queue.write (refQueue ref)
+send ref = Queue.write (unRef ref) . Msg
 
-kill :: Ref a -> IO ()
-kill = killThread . refThreadId
+quit :: Ref a -> IO ()
+quit ref = Queue.write (unRef ref) Quit
+
+sink :: Worker a
+sink = Worker
+    { workerName    = ""
+    , workerStart   = return ()
+    , workerRestart = \() _ _ -> return (Right ())
+    , workerReceive = \() _ -> return ()
+    }

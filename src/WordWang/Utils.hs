@@ -17,15 +17,19 @@ module WordWang.Utils
     , Only(..)
     , Shown(..)
     , JSONP(JSONP)
+    , supervise
     ) where
 
 import           Control.Arrow (first, second)
+import           Control.Concurrent (ThreadId, forkIO, throwTo, myThreadId)
+import           Control.Exception (mask, catch, SomeException)
+import           Control.Monad (when, liftM)
 import           Data.Char (isUpper, toLower)
 import           Data.List (stripPrefix)
 import           Data.Monoid ((<>))
 import           System.IO (stderr)
 
-import           Control.Monad.Trans (MonadIO, liftIO)
+import           Control.Monad.Trans (MonadIO(..))
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import           Data.Hashable (Hashable)
@@ -36,7 +40,6 @@ import qualified Data.Text.Lazy.Builder as TL
 import qualified Data.Text.Lazy.Encoding as TL
 import qualified Data.Text.Lazy.IO as TL
 
-import qualified Blaze.ByteString.Builder as Builder
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import           Data.String.Combinators (quotes)
@@ -45,8 +48,13 @@ import           Data.Text.Format (Format, Only(..), Shown(..), format)
 import           Data.Text.Format.Params (Params)
 import           Data.UUID (UUID)
 import qualified Data.UUID as UUID
+import qualified Database.PostgreSQL.Simple.FromField as PG
 import qualified Database.PostgreSQL.Simple.ToField as PG
+import qualified Database.PostgreSQL.Simple.TypeInfo.Macro as PGTI
+import qualified Database.PostgreSQL.Simple.TypeInfo.Static as PGTI
 import qualified Network.WebSockets as WS
+
+import           WordWang.Config
 
 delPrefix :: String -> String -> String
 delPrefix prefix fieldName =
@@ -117,14 +125,19 @@ sendJSON conn req = do
 stderrMsg :: (MonadIO m, Params ps) => TL.Text -> Format -> ps -> m ()
 stderrMsg pre fmt pars = liftIO (TL.hPutStrLn stderr (pre <> format fmt pars))
 
+logMsg :: (MonadIO m, Params ps) => LogLevel -> Format -> ps -> m ()
+logMsg pri fmt ps = do
+    minPri <- _cLogLevel `liftM` getConfig
+    when (pri >= minPri) (stderrMsg ("[" <> TL.pack (show pri) <> "] ") fmt ps)
+
 debugMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
-debugMsg = stderrMsg "[DEBUG] "
+debugMsg = logMsg DEBUG
 
 infoMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
-infoMsg = stderrMsg "[INFO] "
+infoMsg = logMsg INFO
 
 errorMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
-errorMsg = stderrMsg "[ERROR] "
+errorMsg = logMsg ERROR
 
 eitherUnzip :: (a -> Either b c) -> [a] -> ([b], [c])
 eitherUnzip _ [] = ([], [])
@@ -132,9 +145,23 @@ eitherUnzip f (x : xs) =
     either (first . (:)) (second . (:)) (f x) (eitherUnzip f xs)
 
 instance PG.ToField UUID where
-    toField = PG.Plain . Builder.fromByteString . UUID.toASCIIBytes
+    toField = PG.Escape . UUID.toASCIIBytes
+
+instance PG.FromField UUID where
+    fromField fld bsm =
+        if PG.typeOid fld /= $(PGTI.inlineTypoid PGTI.uuid)
+        then PG.returnError PG.Incompatible fld ""
+        else case bsm of
+            Nothing -> PG.returnError PG.UnexpectedNull fld ""
+            Just bs | Just u <- UUID.fromASCIIBytes bs -> return u
+            _ -> fail "WordWang.Utils FromField UUID: invalid bytes"
 
 newtype JSONP a = JSONP {unJSONP :: a}
 
 instance Aeson.ToJSON a => Buildable (JSONP a) where
     build = TL.fromLazyText . TL.decodeUtf8 . Aeson.encode . unJSONP
+
+supervise :: IO () -> IO ThreadId
+supervise m = mask $ \restore -> do
+    tid <- myThreadId
+    forkIO (restore m `catch` \(e :: SomeException) -> throwTo tid e)

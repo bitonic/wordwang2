@@ -6,11 +6,13 @@ module WordWang.Incremental
     , stop
     ) where
 
-import           Control.Concurrent (forkIO, threadDelay, killThread, ThreadId)
+import           Control.Concurrent (threadDelay, killThread, ThreadId)
 import           Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, modifyMVar_, modifyMVar, readMVar, putMVar, tryPutMVar)
 import           Control.Monad (void)
 
 import           Data.List.NonEmpty (NonEmpty(..))
+
+import           WordWang.Utils
 
 data Continue = Yes !(NonEmpty Int) | No !Int
 
@@ -27,7 +29,7 @@ start x f = do
     cont <- newMVar (Yes (x :| []))
     done <- newEmptyMVar
     -- TODO do something with this
-    tid <- forkIO (worker cont done)
+    tid <- supervise (worker cont done)
     return Incremental{ incrContinue = cont
                       , incrDone     = done
                       , incrFirst    = x
