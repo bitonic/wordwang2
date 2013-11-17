@@ -27,9 +27,9 @@ module WordWang.Messages
     , uStoryId
     ) where
 
-import           Data.HashMap.Strict (HashMap)
-
 import           Data.Foldable (Foldable)
+
+import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import           Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
