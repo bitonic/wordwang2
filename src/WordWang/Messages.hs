@@ -73,7 +73,7 @@ data StoryReq
 data StoryResp
     = StoryRespJoined !UserId
     | StoryRespVotingClosed !Block
-    | StoryRespNewCandidate !Candidate
+    | StoryRespNewCandidate !CandidateId !Candidate
     | StoryRespVote !CandidateId !UserId
     deriving (Eq, Show)
 
@@ -86,7 +86,7 @@ data UserReq
     deriving (Eq, Show)
 
 data UserResp
-    = UserRespJoined !UserId !UserSecret
+    = UserRespJoined !UserId !User
     | UserRespStory !Story
     deriving (Eq, Show)
 
@@ -143,16 +143,20 @@ instance Aeson.FromJSON StoryReq where
 
 instance Aeson.ToJSON StoryResp where
     toJSON = toTaggedJSON $ \case
-        StoryRespJoined uid          -> ("joined",       ["user" .= uid ])
-        StoryRespVotingClosed block  -> ("votingClosed", ["block" .= block])
-        StoryRespNewCandidate cand   -> ("candidate",    ["body" .= cand])
-        StoryRespVote candId voteUid -> ("vote",         ["candidate" .= candId , "vote" .= voteUid])
+        StoryRespJoined uid ->
+          ("joined",       ["user" .= uid ])
+        StoryRespVotingClosed block ->
+          ("votingClosed", ["block" .= block])
+        StoryRespNewCandidate candId cand ->
+          ("candidate",    ["candidateId" .= candId, "body" .= cand])
+        StoryRespVote candId voteUid ->
+          ("vote",         ["candidate" .= candId , "vote" .= voteUid])
 
 instance Aeson.FromJSON StoryResp where
     parseJSON = parseTagged
         [ ("joined",       parseUnary  StoryRespJoined "user")
         , ("votingClosed", parseUnary  StoryRespVotingClosed "block")
-        , ("newCandidate", parseUnary  StoryRespNewCandidate "body")
+        , ("newCandidate", parseBinary StoryRespNewCandidate "candidateId" "body")
         , ("vote",         parseBinary StoryRespVote "candidate" "vote")
         ]
 

@@ -7,19 +7,19 @@ module WordWang.Objects
     , UserId
     , UserSecret
     , User(..)
-    , userSecret
+    , uSecret
 
     , CandidateId
     , Candidate(..)
-    , candBlock
-    , candVotes
+    , cBlock
+    , cVotes
     , candidate
 
     , StoryId
     , Block
     , Story(..)
-    , storyCandidates
-    , storyBlocks
+    , sCandidates
+    , sBlocks
     , emptyStory
     ) where
 
@@ -62,31 +62,31 @@ instance Random Id where
 type UserId = Id
 type UserSecret = ByteString
 data User = User
-    { _userSecret     :: !UserSecret -- TODO Hash the secret
+    { _uSecret     :: !UserSecret -- TODO Hash the secret
     } deriving (Eq, Show)
 
 type CandidateId = UserId
 data Candidate = Candidate
-    { _candBlock :: !Block
-    , _candVotes :: !(HashSet UserId)
+    { _cBlock :: !Block
+    , _cVotes :: !(HashSet UserId)
     } deriving (Eq, Show)
 
 candidate :: UserId -> Block -> Candidate
 candidate uid block =
-    Candidate{ _candBlock = block
-             , _candVotes = HashSet.singleton uid
+    Candidate{ _cBlock = block
+             , _cVotes = HashSet.singleton uid
              }
 
 type StoryId = Id
 type Block = Text
 data Story = Story
-    { _storyBlocks     :: ![Block]
-    , _storyCandidates :: !(HashMap CandidateId Candidate)
+    { _sBlocks     :: ![Block]
+    , _sCandidates :: !(HashMap CandidateId Candidate)
     } deriving (Eq, Show)
 
 emptyStory :: Story
-emptyStory = Story{ _storyBlocks     = []
-                  , _storyCandidates = HashMap.empty
+emptyStory = Story{ _sBlocks     = []
+                  , _sCandidates = HashMap.empty
                   }
 
 ----------------------------------------------------------------------
@@ -115,9 +115,9 @@ instance Aeson.FromJSON v => Aeson.FromJSON (HashMap Id v) where
         f = traverse (\(k, v) -> (, v) . Id <$> UUID.fromASCIIBytes k)
           . HashMap.toList
 
-Aeson.deriveJSON (wwJSON $ delPrefix "_user")  ''User
-Aeson.deriveJSON (wwJSON $ delPrefix "_cand")  ''Candidate
-Aeson.deriveJSON (wwJSON $ delPrefix "_story") ''Story
+Aeson.deriveJSON (wwJSON $ delPrefix "_u")  ''User
+Aeson.deriveJSON (wwJSON $ delPrefix "_c")  ''Candidate
+Aeson.deriveJSON (wwJSON $ delPrefix "_s") ''Story
 
 ----------------------------------------------------------------------
 
