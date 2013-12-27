@@ -16,11 +16,9 @@ module WordWang.Messages
     , StoryReq(..)
     , StoryResp(..)
 
-      -- * Join request/response
-    , JoinReq(..)
-    , JoinResp
-
-    , DBResp(..)
+      -- * User request/response
+    , UserReq(..)
+    , UserResp(..)
     ) where
 
 import           Data.Foldable (Foldable)
@@ -69,13 +67,11 @@ data StoryReq
     = StoryReqJoin
     | StoryReqCandidate Block
     | StoryReqVote UserId
-    | StoryReqStory
     | StoryReqCloseVoting
     deriving (Eq, Show)
 
 data StoryResp
-    = StoryRespStory !Story
-    | StoryRespJoined !UserId
+    = StoryRespJoined !UserId
     | StoryRespVotingClosed !Block
     | StoryRespNewCandidate !Candidate
     | StoryRespVote !CandidateId !UserId
@@ -84,18 +80,14 @@ data StoryResp
 ------------------------------------------------------------------------
 -- Stories
 
-data JoinReq = JoinReq
+data UserReq
+    = UserReqJoin
+    | UserReqStory
     deriving (Eq, Show)
 
-data JoinResp = JoinResp !UserId !UserSecret
-    deriving (Eq, Show)
-
-------------------------------------------------------------------------
--- Stuff stored in db
-
-data DBResp
-    = DBRespStory !StoryResp
-    | DBRespJoin  !JoinResp
+data UserResp
+    = UserRespJoined !UserId !UserSecret
+    | UserRespStory !Story
     deriving (Eq, Show)
 
 ------------------------------------------------------------------------
@@ -139,7 +131,6 @@ instance Aeson.ToJSON StoryReq where
         StoryReqJoin           -> ("join",        [])
         StoryReqCandidate cand -> ("candidate",   ["body" .= cand])
         StoryReqVote vote      -> ("vote",        ["user" .= vote])
-        StoryReqStory          -> ("story",       [])
         StoryReqCloseVoting    -> ("closeVoting", [])
 
 instance Aeson.FromJSON StoryReq where
@@ -147,13 +138,11 @@ instance Aeson.FromJSON StoryReq where
         [ ("join",        parseNullary StoryReqJoin)
         , ("candidate",   parseUnary   StoryReqCandidate "block")
         , ("vote",        parseUnary   StoryReqVote      "user")
-        , ("story",       parseNullary StoryReqStory)
         , ("closeVoting", parseNullary StoryReqCloseVoting)
         ]
 
 instance Aeson.ToJSON StoryResp where
     toJSON = toTaggedJSON $ \case
-        StoryRespStory story         -> ("story",        ["body" .= story])
         StoryRespJoined uid          -> ("joined",       ["user" .= uid ])
         StoryRespVotingClosed block  -> ("votingClosed", ["block" .= block])
         StoryRespNewCandidate cand   -> ("candidate",    ["body" .= cand])
@@ -161,31 +150,32 @@ instance Aeson.ToJSON StoryResp where
 
 instance Aeson.FromJSON StoryResp where
     parseJSON = parseTagged
-        [ ("story",        parseUnary  StoryRespStory "body")
-        , ("joined",       parseUnary  StoryRespJoined "user")
+        [ ("joined",       parseUnary  StoryRespJoined "user")
         , ("votingClosed", parseUnary  StoryRespVotingClosed "block")
         , ("newCandidate", parseUnary  StoryRespNewCandidate "body")
         , ("vote",         parseBinary StoryRespVote "candidate" "vote")
         ]
 
-instance Aeson.ToJSON JoinReq where
+instance Aeson.ToJSON UserReq where
     toJSON = toTaggedJSON $ \case
-        JoinReq -> ("join", [])
+        UserReqJoin  -> ("join",  [])
+        UserReqStory -> ("story", [])
 
-instance Aeson.FromJSON JoinReq where
-    parseJSON = parseTagged [ ("join", parseNullary JoinReq) ]
-
-Aeson.deriveJSON (wwJSON $ delPrefix "_joinResp") ''JoinResp
-
-instance Aeson.ToJSON DBResp where
-    toJSON = toTaggedJSON $ \case
-        DBRespStory storyResp -> ("story", ["body" .= storyResp])
-        DBRespJoin  joinResp  -> ("join",  ["body" .= joinResp])
-
-instance Aeson.FromJSON DBResp where
+instance Aeson.FromJSON UserReq where
     parseJSON = parseTagged
-        [ ("story",        parseUnary  DBRespStory "body")
-        , ("join",         parseUnary  DBRespStory "body")
+        [ ("join",  parseNullary UserReqJoin)
+        , ("story", parseNullary UserReqStory)
+        ]
+
+instance Aeson.ToJSON UserResp where
+    toJSON = toTaggedJSON $ \case
+        UserRespJoined uid secret -> ("joined", ["user" .= uid, "secret" .= secret])
+        UserRespStory story       -> ("story",  ["body" .= story])
+
+instance Aeson.FromJSON UserResp where
+    parseJSON = parseTagged
+        [ ("joined", parseBinary UserRespJoined "user" "secret")
+        , ("story",  parseUnary  UserRespStory "body")
         ]
 
 ----------------------------------------------------------------------
@@ -193,4 +183,3 @@ instance Aeson.FromJSON DBResp where
 makeLenses ''Req
 makeLenses ''ReqAuth
 makeLenses ''Resp
-

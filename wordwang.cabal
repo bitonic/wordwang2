@@ -14,6 +14,7 @@ library
 
   exposed-modules:   WordWang.Messages
                    , WordWang.Objects
+                   , WordWang.State
 
   other-modules:     WordWang.Utils
 

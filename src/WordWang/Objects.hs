@@ -8,7 +8,6 @@ module WordWang.Objects
     , UserSecret
     , User(..)
     , userSecret
-    , Users(..)
 
     , CandidateId
     , Candidate(..)
@@ -65,8 +64,6 @@ type UserSecret = ByteString
 data User = User
     { _userSecret     :: !UserSecret -- TODO Hash the secret
     } deriving (Eq, Show)
-newtype Users = Users { unUsers :: HashMap UserId User }
-    deriving (Eq, Show)
 
 type CandidateId = UserId
 data Candidate = Candidate
