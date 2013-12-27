@@ -12,16 +12,8 @@ data-dir:            data
 library
   hs-source-dirs:    src
 
-  exposed-modules:   WordWang
-                   , WordWang.Messages
-                   , WordWang.Monad
+  exposed-modules:   WordWang.Messages
                    , WordWang.Objects
-                   , WordWang.Queue
-                   , WordWang.Incremental
-                   , WordWang.Bwd
-                   , WordWang.Worker
-                   , WordWang.PostgreSQL
-                   , WordWang.Config
 
   other-modules:     WordWang.Utils
 
@@ -61,23 +53,6 @@ library
                    , TemplateHaskell
                    , TupleSections
                    , ViewPatterns
-
-  ghc-options:       -threaded -Wall -rtsopts -with-rtsopts=-T -O2 -fno-warn-unused-do-bind
-
-  ghc-prof-options:  -auto-all
-
-executable wordwang-server
-  main-is:           wordwang-server.hs
-  
-  build-depends:     wordwang
-                   , base                 >= 4 && < 5
-                   , filepath             >= 1.3
-                   , lens                 >= 3.10
-                   , postgresql-simple    >= 0.3
-                   , snap                 >= 0.13
-                   , snap-core            >= 0.9
-                   , unordered-containers >= 0.2
-                   , websockets-snap      >= 0.8
 
   ghc-options:       -threaded -Wall -rtsopts -with-rtsopts=-T -O2 -fno-warn-unused-do-bind
 

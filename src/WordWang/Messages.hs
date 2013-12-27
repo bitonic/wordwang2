@@ -1,5 +1,6 @@
 module WordWang.Messages
-    ( Req(..)
+    ( -- * Generic request/response
+      Req(..)
     , reqStory
     , reqAuth
     , reqBody
@@ -8,34 +9,24 @@ module WordWang.Messages
     , reqAuthUser
     , reqAuthSecret
 
-    , ReqBody(..)
-
     , Resp(..)
-    , respRecipients
-    , respBody
     , RespError(..)
-    , RespRecipients(..)
-    , RespBody(..)
-    , respStory
-    , respToThis
-    , respToAll
-    , respError
-    , UserStory
-    , uStoryBlocks
-    , uStoryUsers
-    , uStoryCandidates
-    , uStoryId
+
+      -- * Story request/response
+    , StoryReq(..)
+    , StoryResp(..)
+
+      -- * Join request/response
+    , JoinReq(..)
+    , JoinResp
+
+    , DBResp(..)
     ) where
 
 import           Data.Foldable (Foldable)
-
-import           Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
-import           Data.HashSet (HashSet)
-import qualified Data.HashSet as HashSet
 import           Data.Traversable (Traversable)
 
-import           Control.Lens (makeLenses, (^.))
+import           Control.Lens (makeLenses)
 import           Data.Aeson ((.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.TH as Aeson
@@ -43,32 +34,24 @@ import qualified Data.Aeson.TH as Aeson
 import           WordWang.Objects
 import           WordWang.Utils
 
-data Req = Req
+------------------------------------------------------------------------
+-- Generic request/response
+
+data Req r = Req
     { _reqStory :: !StoryId
     , _reqAuth  :: !(Maybe ReqAuth)
-    , _reqBody  :: !ReqBody
-    } deriving (Eq, Show)
+    , _reqBody  :: !r
+    } deriving (Eq, Show, Functor, Foldable, Traversable)
 
 data ReqAuth = ReqAuth
     { _reqAuthUser   :: !UserId
     , _reqAuthSecret :: !UserSecret
     } deriving (Eq, Show)
 
-data ReqBody
-    = ReqJoin
-    | ReqCandidate Block
-    | ReqVote UserId
-    | ReqStory
-    | ReqCloseVoting
-    deriving (Eq, Show)
-
-data RespRecipients conn = All | This conn
+data Resp r
+    = RespOK !r
+    | RespError !RespError
     deriving (Eq, Show, Functor, Foldable, Traversable)
-
-data Resp conn = Resp
-    { _respRecipients :: !(RespRecipients conn)
-    , _respBody       :: !RespBody
-    } deriving (Eq, Show, Functor, Foldable, Traversable)
 
 data RespError
     = StoryNotPresent !StoryId
@@ -79,81 +62,57 @@ data RespError
     | NoStory
     deriving (Eq, Show)
 
-data RespBody
-    = RespStory !UserStory
-    | RespError !RespError
-    | RespJoined !UserId !UserSecret
-    | RespUser !UserId
-    | RespVotingClosed !Block
-    | RespCandidate !Candidate
-    | RespVote {- Candidate -} !UserId {- Vote -} !UserId
+------------------------------------------------------------------------
+-- Stories
+
+data StoryReq
+    = StoryReqJoin
+    | StoryReqCandidate Block
+    | StoryReqVote UserId
+    | StoryReqStory
+    | StoryReqCloseVoting
     deriving (Eq, Show)
 
-data UserStory = UserStory
-    { _uStoryId           :: !StoryId
-    , _uStoryUsers        :: !(HashSet UserId)
-    , _uStoryBlocks       :: ![Block]
-    , _uStoryCandidates   :: !(HashMap UserId Candidate)
-    } deriving (Eq, Show)
+data StoryResp
+    = StoryRespStory !Story
+    | StoryRespJoined !UserId
+    | StoryRespVotingClosed !Block
+    | StoryRespNewCandidate !Candidate
+    | StoryRespVote !CandidateId !UserId
+    deriving (Eq, Show)
 
-respStory :: Story -> RespBody
-respStory story = RespStory UserStory
-    { _uStoryId         = story^.storyId
-    , _uStoryUsers      = HashSet.fromList (HashMap.keys (story^.storyUsers))
-    , _uStoryBlocks     = story^.storyBlocks
-    , _uStoryCandidates = story^.storyCandidates
-    }
+------------------------------------------------------------------------
+-- Stories
 
-respToThis :: RespBody -> Resp ()
-respToThis body = Resp{_respRecipients = This (), _respBody = body}
+data JoinReq = JoinReq
+    deriving (Eq, Show)
 
-respToAll :: RespBody -> Resp a
-respToAll body = Resp{_respRecipients = All, _respBody = body}
+data JoinResp = JoinResp !UserId !UserSecret
+    deriving (Eq, Show)
 
-respError :: RespError -> Resp ()
-respError err = respToThis (RespError err)
+------------------------------------------------------------------------
+-- Stuff stored in db
 
-----------------------------------------------------------------------
+data DBResp
+    = DBRespStory !StoryResp
+    | DBRespJoin  !JoinResp
+    deriving (Eq, Show)
+
+------------------------------------------------------------------------
+-- JSON instances
 
 Aeson.deriveJSON (wwJSON $ delPrefix "_req")      ''Req
 Aeson.deriveJSON (wwJSON $ delPrefix "_reqAuth")  ''ReqAuth
 
-instance Aeson.ToJSON ReqBody where
+instance Aeson.ToJSON r => Aeson.ToJSON (Resp r) where
     toJSON = toTaggedJSON $ \case
-        ReqJoin           -> ("join",        [])
-        ReqCandidate cand -> ("candidate",   ["body" .= cand])
-        ReqVote vote      -> ("vote",        ["user" .= vote])
-        ReqStory          -> ("story",       [])
-        ReqCloseVoting    -> ("closeVoting", [])
+        RespOK resp   -> ("ok",    ["body" .= Aeson.toJSON resp])
+        RespError err -> ("error", ["error" .= Aeson.toJSON err])
 
-instance Aeson.FromJSON ReqBody where
+instance Aeson.FromJSON r => Aeson.FromJSON (Resp r) where
     parseJSON = parseTagged
-        [ ("join",        parseNullary ReqJoin)
-        , ("candidate",   parseUnary   ReqCandidate "block")
-        , ("vote",        parseUnary   ReqVote      "user")
-        , ("story",       parseNullary ReqStory)
-        , ("closeVoting", parseNullary ReqCloseVoting)
-        ]
-
-instance Aeson.ToJSON RespBody where
-    toJSON = toTaggedJSON $ \case
-        RespStory story          -> ("story",        ["body" .= story])
-        RespError err            -> ("error",        ["error" .= err])
-        RespJoined uid secret    -> ("joined",       ["user" .= uid , "secret" .= secret])
-        RespUser uid             -> ("user",         ["user" .= uid])
-        RespVotingClosed block   -> ("votingClosed", ["block" .= block])
-        RespCandidate cand       -> ("candidate",    ["body" .= cand])
-        RespVote candUid voteUid -> ("vote",         ["candidate" .= candUid , "vote" .= voteUid])
-
-instance Aeson.FromJSON RespBody where
-    parseJSON = parseTagged
-        [ ("story",        parseUnary  RespStory "body")
-        , ("joined",       parseBinary RespJoined "user" "secret")
-        , ("user",         parseUnary  RespUser "user")
-        , ("votingClosed", parseUnary  RespVotingClosed "block")
-        , ("candidate",    parseUnary  RespCandidate "body")
-        , ("vote",         parseBinary RespVote "candidate" "vote")
-        , ("error",        parseUnary  RespError "error")
+        [ ("ok",    parseUnary RespOK "body")
+        , ("error", parseUnary RespError "error")
         ]
 
 instance Aeson.ToJSON RespError where
@@ -175,11 +134,63 @@ instance Aeson.FromJSON RespError where
         , ("noStory",            parseNullary NoStory)
         ]
 
-Aeson.deriveJSON (wwJSON $ delPrefix "_uStory") ''UserStory
+instance Aeson.ToJSON StoryReq where
+    toJSON = toTaggedJSON $ \case
+        StoryReqJoin           -> ("join",        [])
+        StoryReqCandidate cand -> ("candidate",   ["body" .= cand])
+        StoryReqVote vote      -> ("vote",        ["user" .= vote])
+        StoryReqStory          -> ("story",       [])
+        StoryReqCloseVoting    -> ("closeVoting", [])
+
+instance Aeson.FromJSON StoryReq where
+    parseJSON = parseTagged
+        [ ("join",        parseNullary StoryReqJoin)
+        , ("candidate",   parseUnary   StoryReqCandidate "block")
+        , ("vote",        parseUnary   StoryReqVote      "user")
+        , ("story",       parseNullary StoryReqStory)
+        , ("closeVoting", parseNullary StoryReqCloseVoting)
+        ]
+
+instance Aeson.ToJSON StoryResp where
+    toJSON = toTaggedJSON $ \case
+        StoryRespStory story         -> ("story",        ["body" .= story])
+        StoryRespJoined uid          -> ("joined",       ["user" .= uid ])
+        StoryRespVotingClosed block  -> ("votingClosed", ["block" .= block])
+        StoryRespNewCandidate cand   -> ("candidate",    ["body" .= cand])
+        StoryRespVote candId voteUid -> ("vote",         ["candidate" .= candId , "vote" .= voteUid])
+
+instance Aeson.FromJSON StoryResp where
+    parseJSON = parseTagged
+        [ ("story",        parseUnary  StoryRespStory "body")
+        , ("joined",       parseUnary  StoryRespJoined "user")
+        , ("votingClosed", parseUnary  StoryRespVotingClosed "block")
+        , ("newCandidate", parseUnary  StoryRespNewCandidate "body")
+        , ("vote",         parseBinary StoryRespVote "candidate" "vote")
+        ]
+
+instance Aeson.ToJSON JoinReq where
+    toJSON = toTaggedJSON $ \case
+        JoinReq -> ("join", [])
+
+instance Aeson.FromJSON JoinReq where
+    parseJSON = parseTagged [ ("join", parseNullary JoinReq) ]
+
+Aeson.deriveJSON (wwJSON $ delPrefix "_joinResp") ''JoinResp
+
+instance Aeson.ToJSON DBResp where
+    toJSON = toTaggedJSON $ \case
+        DBRespStory storyResp -> ("story", ["body" .= storyResp])
+        DBRespJoin  joinResp  -> ("join",  ["body" .= joinResp])
+
+instance Aeson.FromJSON DBResp where
+    parseJSON = parseTagged
+        [ ("story",        parseUnary  DBRespStory "body")
+        , ("join",         parseUnary  DBRespStory "body")
+        ]
 
 ----------------------------------------------------------------------
 
 makeLenses ''Req
 makeLenses ''ReqAuth
 makeLenses ''Resp
-makeLenses ''UserStory
+
