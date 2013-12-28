@@ -28,7 +28,6 @@ start :: Int -> (Int -> Maybe Int) -> IO Incremental
 start x f = do
     cont <- newMVar (Yes (x :| []))
     done <- newEmptyMVar
-    -- TODO do something with this
     tid <- supervise (worker cont done)
     return Incremental{ incrContinue = cont
                       , incrDone     = done
@@ -58,5 +57,5 @@ wait Incremental{incrDone = done} = readMVar done
 
 stop :: Incremental -> IO ()
 stop Incremental{incrDone = done, incrTid = tid} = do
-    tryPutMVar done ()
+    void $ tryPutMVar done ()
     void $ killThread tid

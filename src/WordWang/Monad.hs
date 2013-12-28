@@ -1,11 +1,12 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module WordWang.Monad
     ( -- * State
-      WWState(..)
-    , wwStoryState
-    , wwChanged
-    , wwStoryResps
-    , wwUserResps
+      RespRecipient(..)
+    , WWState(..)
+    , wwReq
+    , wwRoot
+    , wwPatches
+    , wwResps
 
       -- * The monad
     , WW
@@ -13,61 +14,70 @@ module WordWang.Monad
 
       -- * Operations
     , terminate
-    , respondToUser
-    , respondToAll
+    , patchRoot
+    , respond
+    , patchStoryAndRespond
     ) where
 
 import           Control.Applicative (Applicative)
 
-import           Control.Monad.Reader (ReaderT(runReaderT), MonadReader)
-import           Control.Monad.State (StateT(runStateT), runStateT, MonadState)
-import           Control.Monad.Trans (MonadIO)
+import           Control.Monad.State.Strict (StateT(runStateT), runStateT, MonadState)
+import           Control.Monad.Trans (MonadIO, lift)
+import           Control.Monad.Trans.Maybe (runMaybeT)
 
 import           Control.Lens (makeLenses, use, (%=), (.=))
 import           Control.Monad.Trans.Either (EitherT(runEitherT), left)
-import           Control.Monad.Trans.Maybe (runMaybeT)
 
+import           WordWang.Objects
 import           WordWang.Bwd
 import           WordWang.Messages
-import           WordWang.State
+
+data RespRecipient = All | This
+    deriving (Eq, Show)
 
 data WWState = WWState
-    { _wwStoryState :: !StoryState
-    , _wwChanged    :: !Bool
-    , _wwStoryResps :: !(Bwd StoryResp)
-    , _wwUserResps  :: !(Bwd UserResp)
+    { _wwReq     :: !Req
+    , _wwRoot    :: !Root
+    , _wwResps   :: !(Bwd (RespRecipient, Resp))
+    , _wwPatches :: !(Bwd Patch)
     } deriving (Eq, Show)
 
 makeLenses ''WWState
 
-newtype WW r a =
-    WW {unWW :: EitherT RespError (ReaderT (Req r) (StateT WWState IO)) a}
-    deriving (Functor, Applicative, Monad, MonadState WWState, MonadReader (Req r), MonadIO)
+newtype WW a =
+    WW {unWW :: StateT WWState (EitherT RespError IO) a}
+    deriving (Functor, Applicative, Monad, MonadState WWState, MonadIO)
 
-runWW :: Req r -> StoryState -> WW r a -> IO (Either RespError a, WWState)
-runWW req storyState m = do
-    let wwst = WWState{ _wwStoryState = storyState
-                      , _wwChanged    = False
-                      , _wwStoryResps = B0
-                      , _wwUserResps  = B0
+runWW :: Req -> Root -> WW a -> IO (Either RespError (a, WWState))
+runWW req root m = do
+    let wwst = WWState{ _wwReq     = req
+                      , _wwRoot    = root
+                      , _wwPatches = B0
+                      , _wwResps   = B0
                       }
-    flip runStateT wwst $ flip runReaderT req $ runEitherT $ unWW m
+    runEitherT $ flip runStateT wwst $ unWW m
 
-terminate :: RespError -> WW r a
-terminate = WW . left
+terminate :: RespError -> WW a
+terminate = WW . lift . left
 
-respondToAll :: StoryResp -> WW r ()
-respondToAll resp = do
-    storyState <- use wwStoryState
-    case runMaybeT (applyStoryResp resp storyState) of
+patchRoot :: Patch -> WW ()
+patchRoot patch = do
+    root <- use wwRoot
+    case runMaybeT (applyPatch patch root) of
       Left err -> do
-        terminate $ ErrorApplyingResp err
+        terminate $ ErrorApplyingPatch err
       Right Nothing -> do
         return ()
-      Right (Just storyState') -> do
-        wwStoryResps %= (:< resp)
-        wwChanged    .= True
-        wwStoryState .= storyState'
+      Right (Just root') -> do
+        wwRoot    .= root'
+        wwPatches %= (:< patch)
 
-respondToUser :: UserResp -> WW r ()
-respondToUser resp = wwUserResps %= (:< resp)
+respond :: RespRecipient -> Resp -> WW ()
+respond recipient resp =
+    wwResps %= (:< (recipient, resp))
+
+patchStoryAndRespond :: PatchStory -> WW ()
+patchStoryAndRespond patchStory = do
+    let patch = PStory patchStory
+    patchRoot patch
+    respond All $ RespPatch patch

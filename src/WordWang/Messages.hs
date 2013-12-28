@@ -1,28 +1,15 @@
 module WordWang.Messages
-    ( -- * Generic request/response
-      Req(..)
+    ( Req(..)
     , reqStory
     , reqAuth
     , reqBody
-
     , ReqAuth(..)
     , reqAuthUser
     , reqAuthSecret
 
     , Resp(..)
     , RespError(..)
-
-      -- * Story request/response
-    , StoryReq(..)
-    , StoryResp(..)
-
-      -- * User request/response
-    , UserReq(..)
-    , UserResp(..)
     ) where
-
-import           Data.Foldable (Foldable)
-import           Data.Traversable (Traversable)
 
 import           Control.Lens (makeLenses)
 import           Data.Aeson ((.=))
@@ -33,23 +20,31 @@ import           WordWang.Objects
 import           WordWang.Utils
 
 ------------------------------------------------------------------------
--- Generic request/response
+-- Request
 
-data Req r = Req
+data Req = Req
     { _reqStory :: !StoryId
     , _reqAuth  :: !(Maybe ReqAuth)
-    , _reqBody  :: !r
-    } deriving (Eq, Show, Functor, Foldable, Traversable)
+    , _reqBody  :: !ReqBody
+    } deriving (Eq, Show)
 
 data ReqAuth = ReqAuth
     { _reqAuthUser   :: !UserId
     , _reqAuthSecret :: !UserSecret
     } deriving (Eq, Show)
 
-data Resp r
-    = RespOK !r
+data ReqBody
+    = ReqPatch !PatchStory
+    | ReqStory
+    | ReqJoin
+    deriving (Eq, Show)
+
+data Resp
+    = RespPatch !Patch
+    | RespStory !Story
+    | RespJoin !UserId !User
     | RespError !RespError
-    deriving (Eq, Show, Functor, Foldable, Traversable)
+    deriving (Eq, Show)
 
 data RespError
     = StoryNotPresent !StoryId
@@ -57,37 +52,7 @@ data RespError
     | NoCredentials
     | InvalidCredentials
     | ErrorDecodingReq !String
-    | ErrorApplyingResp !String
-    deriving (Eq, Show)
-
-------------------------------------------------------------------------
--- Stories
-
-data StoryReq
-    = StoryReqJoin
-    | StoryReqCandidate Block
-    | StoryReqVote UserId
-    | StoryReqCloseVoting
-    deriving (Eq, Show)
-
-data StoryResp
-    = StoryRespJoined !UserId
-    | StoryRespVotingClosed !Block
-    | StoryRespNewCandidate !CandidateId !Candidate
-    | StoryRespVote !CandidateId !UserId
-    deriving (Eq, Show)
-
-------------------------------------------------------------------------
--- Stories
-
-data UserReq
-    = UserReqJoin
-    | UserReqStory
-    deriving (Eq, Show)
-
-data UserResp
-    = UserRespJoined !UserId !User
-    | UserRespStory !Story
+    | ErrorApplyingPatch !String
     deriving (Eq, Show)
 
 ------------------------------------------------------------------------
@@ -96,90 +61,55 @@ data UserResp
 Aeson.deriveJSON (wwJSON $ delPrefix "_req")      ''Req
 Aeson.deriveJSON (wwJSON $ delPrefix "_reqAuth")  ''ReqAuth
 
-instance Aeson.ToJSON r => Aeson.ToJSON (Resp r) where
+instance Aeson.ToJSON ReqBody where
     toJSON = toTaggedJSON $ \case
-        RespOK resp   -> ("ok",    ["body" .= Aeson.toJSON resp])
-        RespError err -> ("error", ["error" .= Aeson.toJSON err])
+        ReqPatch patch    -> ("patch", ["body" .= patch])
+        ReqJoin           -> ("join",  [])
+        ReqStory          -> ("story", [])
 
-instance Aeson.FromJSON r => Aeson.FromJSON (Resp r) where
+instance Aeson.FromJSON ReqBody where
     parseJSON = parseTagged
-        [ ("ok",    parseUnary RespOK "body")
-        , ("error", parseUnary RespError "error")
+        [ ("patch", parseUnary   ReqPatch "body")
+        , ("join",  parseNullary ReqJoin)
+        , ("story", parseNullary ReqStory)
+        ]
+
+instance Aeson.ToJSON Resp where
+    toJSON = toTaggedJSON $ \case
+        RespJoin userId user ->
+          ("join",  ["userId" .= userId, "user" .= user])
+        RespStory story ->
+          ("story", ["body" .= story])
+        RespPatch patch ->
+          ("patch", ["body" .= patch])
+        RespError err ->
+          ("error", ["body" .= err])
+
+instance Aeson.FromJSON Resp where
+    parseJSON = parseTagged
+        [ ("join",   parseBinary RespJoin "userId" "user")
+        , ("story",  parseUnary  RespStory "body")
+        , ("patch",  parseUnary  RespPatch "body")
+        , ("error",  parseUnary  RespError "body")
         ]
 
 instance Aeson.ToJSON RespError where
     toJSON = toTaggedJSON $ \case
-        StoryNotPresent sid   -> ("storyNotPresent",    ["story" .= sid])
-        InternalError err     -> ("internalError",      ["msg" .= err])
-        NoCredentials         -> ("noCredentials",      [])
-        InvalidCredentials    -> ("invalidCredentials", [])
-        ErrorDecodingReq err  -> ("errorDecodingReq",   ["msg" .= err])
-        ErrorApplyingResp err -> ("errorApplyingResp",  ["msg" .= err])
+        StoryNotPresent storyId -> ("storyNotPresent",    ["storyId" .= storyId])
+        InternalError err       -> ("internalError",      ["msg" .= err])
+        NoCredentials           -> ("noCredentials",      [])
+        InvalidCredentials      -> ("invalidCredentials", [])
+        ErrorDecodingReq err    -> ("errorDecodingReq",   ["msg" .= err])
+        ErrorApplyingPatch err  -> ("errorApplyingResp",  ["msg" .= err])
 
 instance Aeson.FromJSON RespError where
     parseJSON = parseTagged
-        [ ("storyNotPresent",    parseUnary   StoryNotPresent "story")
-        , ("internalError",      parseUnary   InternalError "msg")
-        , ("noCredentials",      parseNullary NoCredentials)
-        , ("invalidCredentials", parseNullary InvalidCredentials)
-        , ("errorDecodingReq",   parseUnary   ErrorDecodingReq "msg")
-        , ("errorApplyingResp",  parseUnary   ErrorApplyingResp "msg")
-        ]
-
-instance Aeson.ToJSON StoryReq where
-    toJSON = toTaggedJSON $ \case
-        StoryReqJoin           -> ("join",        [])
-        StoryReqCandidate cand -> ("candidate",   ["body" .= cand])
-        StoryReqVote vote      -> ("vote",        ["user" .= vote])
-        StoryReqCloseVoting    -> ("closeVoting", [])
-
-instance Aeson.FromJSON StoryReq where
-    parseJSON = parseTagged
-        [ ("join",        parseNullary StoryReqJoin)
-        , ("candidate",   parseUnary   StoryReqCandidate "block")
-        , ("vote",        parseUnary   StoryReqVote      "user")
-        , ("closeVoting", parseNullary StoryReqCloseVoting)
-        ]
-
-instance Aeson.ToJSON StoryResp where
-    toJSON = toTaggedJSON $ \case
-        StoryRespJoined uid ->
-          ("joined",       ["user" .= uid ])
-        StoryRespVotingClosed block ->
-          ("votingClosed", ["block" .= block])
-        StoryRespNewCandidate candId cand ->
-          ("candidate",    ["candidateId" .= candId, "body" .= cand])
-        StoryRespVote candId voteUid ->
-          ("vote",         ["candidate" .= candId , "vote" .= voteUid])
-
-instance Aeson.FromJSON StoryResp where
-    parseJSON = parseTagged
-        [ ("joined",       parseUnary  StoryRespJoined "user")
-        , ("votingClosed", parseUnary  StoryRespVotingClosed "block")
-        , ("newCandidate", parseBinary StoryRespNewCandidate "candidateId" "body")
-        , ("vote",         parseBinary StoryRespVote "candidate" "vote")
-        ]
-
-instance Aeson.ToJSON UserReq where
-    toJSON = toTaggedJSON $ \case
-        UserReqJoin  -> ("join",  [])
-        UserReqStory -> ("story", [])
-
-instance Aeson.FromJSON UserReq where
-    parseJSON = parseTagged
-        [ ("join",  parseNullary UserReqJoin)
-        , ("story", parseNullary UserReqStory)
-        ]
-
-instance Aeson.ToJSON UserResp where
-    toJSON = toTaggedJSON $ \case
-        UserRespJoined uid secret -> ("joined", ["user" .= uid, "secret" .= secret])
-        UserRespStory story       -> ("story",  ["body" .= story])
-
-instance Aeson.FromJSON UserResp where
-    parseJSON = parseTagged
-        [ ("joined", parseBinary UserRespJoined "user" "secret")
-        , ("story",  parseUnary  UserRespStory "body")
+        [ ("storyNotPresent",     parseUnary   StoryNotPresent "story")
+        , ("internalError",       parseUnary   InternalError "msg")
+        , ("noCredentials",       parseNullary NoCredentials)
+        , ("invalidCredentials",  parseNullary InvalidCredentials)
+        , ("errorDecodingReq",    parseUnary   ErrorDecodingReq "msg")
+        , ("errorApplyingPatch",  parseUnary   ErrorApplyingPatch "msg")
         ]
 
 ----------------------------------------------------------------------

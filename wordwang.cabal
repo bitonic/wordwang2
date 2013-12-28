@@ -14,7 +14,6 @@ library
 
   exposed-modules:   WordWang.Messages
                    , WordWang.Objects
-                   , WordWang.State
                    , WordWang.Bwd
                    , WordWang.Monad
 
@@ -58,6 +57,6 @@ library
                    , TupleSections
                    , ViewPatterns
 
-  ghc-options:       -threaded -Wall -rtsopts -with-rtsopts=-T -O2 -fno-warn-unused-do-bind
+  ghc-options:       -threaded -Wall -rtsopts -with-rtsopts=-T -O2
 
   ghc-prof-options:  -auto-all

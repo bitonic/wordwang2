@@ -10,7 +10,7 @@ module WordWang
     , createStory'
     , createStory
     , serverWW
-    , wordwang
+--    , wordwang
     ) where
 
 import           Control.Applicative ((<*>))
@@ -19,7 +19,7 @@ import           Control.Exception (catch)
 import           Control.Monad (filterM, when, void, unless)
 import           Data.Foldable (toList)
 import           Data.Functor ((<$>), (<$))
-import           Data.IORef (newIORef, atomicModifyIORef)
+import           Data.IORef (newIORef, modifyIORef', atomicModifyIORef')
 import           Data.Int (Int64)
 import           Data.List (maximumBy)
 import           Data.Ord (comparing)
@@ -41,219 +41,207 @@ import qualified Network.WebSockets as WS
 import           Snap (Snap)
 import qualified Snap as Snap
 
+import           WordWang.Bwd
 import           WordWang.Config
+import           WordWang.Incremental (Incremental)
+import qualified WordWang.Incremental as Incre
 import           WordWang.Messages
 import           WordWang.Monad
 import           WordWang.Objects
+import           WordWang.State
 import           WordWang.Utils
-import           WordWang.Bwd
-import qualified WordWang.Incremental as Incre
-import           WordWang.Worker (Worker(..))
-import qualified WordWang.Worker as Worker
-import           WordWang.PostgreSQL
 
-type StoryThings =
-    (MVar Story, Worker.Ref RespWorkerMsg, Worker.Ref IncreWorkerMsg)
+data StoryEnv = StoryEnv
+    { _seStoryState  :: StoryState
+    , _seConnections :: [TaggedConn]
+    , _seIncremental :: Incremental
+    }
 
-type Stories = MVar (HashMap StoryId StoryThings)
+makeLenses ''StoryEnv
 
+type Stories = MVar (HashMap StoryId (MVar StoryEnv))
 
-
-internalError :: Text -> WW a
+internalError :: String -> WW req a
 internalError = terminate . InternalError
 
-makeSecret :: WW UserSecret
+makeSecret :: WW req UserSecret
 makeSecret = do
     gen <- liftIO (newGenIO :: IO HashDRBG)
     case genBytes 15 gen of
-        Left err -> internalError (Text.pack (show err))
-        Right (bs, _) -> return (Base64.URL.encode bs)
+      Left err      -> internalError $ show err
+      Right (bs, _) -> return $ Base64.URL.encode bs
 
-data RespWorkerMsg
-    = SendResp (Resp TaggedConn)
-    | AddConn TaggedConn
+-- data IncreWorkerMsg = Done | Bump
 
-respWorker :: StoryId -> Worker.Ref RespBody -> Worker RespWorkerMsg
-respWorker sid persistWRef = Worker
-    { workerName    = Text.pack (show sid ++ "-resp")
-    , workerStart   = return []
-    , workerRestart = \conns _ _ -> return (Right conns)
-    , workerReceive = \conns msg -> case msg of
-           AddConn conn -> return (Just (conn : conns))
-           SendResp resp -> do
-               conns' <- process conns resp
-               Worker.send persistWRef (resp^.respBody)
-               return (Just conns')
-    }
-  where
-    process conns resp =
-        case resp^.respRecipients of
-            All       -> flip filterM conns $ \conn' ->
-                         ignoreClosed (sendJSON conn' (resp^.respBody))
-            This conn -> conns <$
-                         void (ignoreClosed (sendJSON conn (resp^.respBody)))
+-- increWorker :: MVar Story -> Worker.Ref RespWorkerMsg
+--             -> IO (Worker.Send IncreWorkerMsg -> Worker IncreWorkerMsg)
+-- increWorker storyMv respWRef = do
+--     sid <- _storyId <$> readMVar storyMv
+--     return $ \send -> Worker
+--         { workerName = Text.pack (show sid ++ "-incre")
+--         , workerStart = return Nothing
+--         , workerRestart = \_ _ _ -> return (Left "increWorker: shouldn't terminate")
+--         , workerReceive = \increM msg -> (Just <$> process send increM msg)
+--         }
+--   where
+--     startT = 10000000
 
-    ignoreClosed m =
-        (True <$ m) `catch` \(_ :: WS.ConnectionException) -> return False
+--     halveMaybe n | n >= 500000 = Just (n - (n `div` 3))
+--     halveMaybe _ = Nothing
 
-persistWorker :: StoryId -> IO (Worker RespBody)
-persistWorker sid = do
-    conf <- _cPersist <$> getConfig
-    return $ case conf of
-        NoPersist -> Worker.sink
-        PGPersist ci -> pgWorker sid ci
+--     process send Nothing Bump = do
+--         incre <- Incre.start startT halveMaybe
+--         -- TODO are we sure this terminates?
+--         supervise $ do
+--             Incre.wait incre
+--             send Done
+--         return (Just incre)
+--     process _ (Just incre) Bump = Just incre <$ Incre.bump incre
+--     process _ increM Done = do
+--         maybe (return ()) Incre.stop increM
+--         modifyMVar_ storyMv $ \story -> do
+--             case HashMap.elems (story^.storyCandidates) of
+--                 [] -> error "increWorker: incremental terminated with no candidates!"
+--                 cands@(_:_) -> do
+--                     let cand  = maximumBy (comparing (HashSet.size . _candVotes)) cands
+--                         block = cand^.candBlock
+--                     Worker.send respWRef
+--                         (SendResp (respToAll (RespVotingClosed block)))
+--                     let story' = story & storyCandidates .~ HashMap.empty
+--                     return (story' & storyBlocks %~ (++ [block]))
+--         return increM
 
-data IncreWorkerMsg = Done | Bump
-
-increWorker :: MVar Story -> Worker.Ref RespWorkerMsg
-            -> IO (Worker.Send IncreWorkerMsg -> Worker IncreWorkerMsg)
-increWorker storyMv respWRef = do
-    sid <- _storyId <$> readMVar storyMv
-    return $ \send -> Worker
-        { workerName = Text.pack (show sid ++ "-incre")
-        , workerStart = return Nothing
-        , workerRestart = \_ _ _ -> return (Left "increWorker: shouldn't terminate")
-        , workerReceive = \increM msg -> (Just <$> process send increM msg)
-        }
-  where
-    startT = 10000000
-
-    halveMaybe n | n >= 500000 = Just (n - (n `div` 3))
-    halveMaybe _ = Nothing
-
-    process send Nothing Bump = do
-        incre <- Incre.start startT halveMaybe
-        -- TODO are we sure this terminates?
-        supervise $ do
-            Incre.wait incre
-            send Done
-        return (Just incre)
-    process _ (Just incre) Bump = Just incre <$ Incre.bump incre
-    process _ increM Done = do
-        maybe (return ()) Incre.stop increM
-        modifyMVar_ storyMv $ \story -> do
-            case HashMap.elems (story^.storyCandidates) of
-                [] -> error "increWorker: incremental terminated with no candidates!"
-                cands@(_:_) -> do
-                    let cand  = maximumBy (comparing (HashSet.size . _candVotes)) cands
-                        block = cand^.candBlock
-                    Worker.send respWRef
-                        (SendResp (respToAll (RespVotingClosed block)))
-                    let story' = story & storyCandidates .~ HashMap.empty
-                    return (story' & storyBlocks %~ (++ [block]))
-        return increM
-
-authenticated :: WW UserId
+authenticated :: WW req UserId
 authenticated = do
-    authM <- view reqAuth
-    case authM of
-        Nothing -> terminate NoCredentials
-        Just auth -> do
-            story <- use wwStory
-            let uid = auth^.reqAuthUser
-            maybe (terminate InvalidCredentials) (const (return uid))
-                  (story^.storyUsers.at uid)
+    mbAuth <- use (wwReq . reqAuth)
+    case mbAuth of
+      Nothing -> do
+        terminate NoCredentials
+      Just auth -> do
+        users <- use (wwStoryState . ssUsers)
+        let uid = auth ^. reqAuthUser
+        case users ^. at uid of
+          Just user | auth ^. reqAuthSecret == user ^. uSecret ->
+            return uid
+          _ ->
+            terminate InvalidCredentials
 
-createStory' :: Stories -> Story -> IO ()
-createStory' storiesMv story = modifyMVar_ storiesMv $ \stories -> do
-    let sid = story^.storyId
+createStory' :: StoryId -> Story -> Stories -> IO ()
+createStory' storyId story storiesMv = modifyMVar_ storiesMv $ \stories -> do
     storyMv <- newMVar story
-    persistWRef <- Worker.run . const =<< persistWorker sid
-    respWRef <- Worker.run $ \_ -> respWorker sid persistWRef
-    increWRef <- Worker.run =<< increWorker storyMv respWRef
-    return (HashMap.insert sid (storyMv, respWRef, increWRef) stories)
+    return undefined
 
 createStory :: Stories -> Snap ()
 createStory storiesMv = do
-    sid <- liftIO randomIO
-    liftIO (createStory' storiesMv (emptyStory sid))
+    storyId <- liftIO randomIO
+    liftIO $ createStory' storyId emptyStory storiesMv
     Snap.modifyResponse $
         Snap.setResponseCode 200 . Snap.setContentType "text/json"
-    Snap.writeLBS (Aeson.encode sid)
+    Snap.writeLBS (Aeson.encode storyId)
 
-serverWW :: Stories -> WW () -> WS.ServerApp
+serverWW :: forall req. (Aeson.FromJSON req, Aeson.ToJSON req)
+         => Stories -> WW req () -> WS.ServerApp
 serverWW storiesMv m pending = do
     countRef <- newIORef (0 :: Int64)
     go countRef
   where
     go countRef = do
         conn <- WS.acceptRequest pending
-        connId <- atomicModifyIORef countRef (\c -> (c, c + 1))
-        decodeReq (conn, connId) False
+        connId <- atomicModifyIORef' countRef (\c -> (c, c + 1))
+        decodeReq (TaggedConn conn connId) False
 
     decodeReq (tagConn :: TaggedConn) isReg = do
-        reqm <- Aeson.eitherDecode <$> WS.receiveData (fst tagConn)
+        reqm <- Aeson.eitherDecode <$> WS.receiveData (tagConn ^. tcConn)
         case reqm of
-            Left err -> do
-                sendErr tagConn (ErrorDecodingReq (Text.pack err))
-                decodeReq tagConn isReg
-            Right (req :: Req) -> do
-                debugMsg "[{}] received request `{}'" (snd tagConn, JSONP req)
-                handleReq tagConn isReg req
+          Left err -> do
+            sendErr tagConn $ ErrorDecodingReq err
+            decodeReq tagConn isReg
+          Right (req :: Req req) -> do
+            debugMsg "[{}] received request `{}'" (tagConn ^. tcTag, JSONP req)
+            handleReq tagConn isReg req
 
-    handleReq tagConn isReg req = do
+    handleReq (tagConn :: TaggedConn) isReg req = do
         let sid = req^.reqStory
         stories <- readMVar storiesMv
         case stories ^. at sid of
-            Nothing -> do
-                sendErr tagConn NoStory
-                decodeReq tagConn isReg
-            Just (storyMv, respWRef, incrWRef) -> do
-                unless isReg (Worker.send respWRef (AddConn tagConn))
-                modifyMVar_ storyMv $ \story -> do
-                    (res, wwst) <- runWW req story m
-                    let resps0 = wwst^.wwResps
-                        resps1 = either ((resps0 :<) . respToThis . RespError)
-                                 (const resps0) res
-                        resps2 = (respRecipients %~ fmap (const tagConn)) <$> resps1
-                    mapM_ (Worker.send respWRef . SendResp) (toList resps2)
-                    when (wwst^.wwBump) (Worker.send incrWRef Bump)
-                    return (wwst^.wwStory)
-                decodeReq tagConn True
+          Nothing -> do
+            sendErr tagConn $ StoryNotPresent sid
+            decodeReq tagConn isReg
+          -- TODO right now we lock everything with the state.  We
+          -- should really do this asynchronously.
+          Just storyEnvMv -> do
+            modifyMVar_ storyEnvMv $ \storyEnv0 -> do
+              -- Add the current connection to the list, if not registered.
+              let storyEnv1 = if isReg
+                              then storyEnv0
+                              else storyEnv0 & seConnections %~ (tagConn :)
+              -- Run the monadic action.
+              result <- runWW req (storyEnv1 ^. seStoryState) m
+              case result of
+                -- If the monadic action went wrong, just send a
+                -- response with the error, without writing anything or
+                -- modifying the state.
+                Left err -> do
+                  sendJSON tagConn (RespError err :: Resp ())
+                  return $ storyEnv1
+                -- Otherwise...
+                Right ((), wwst) -> do
+                  let storyState = wwst ^. wwStoryState
+                      storyEnv2  = storyEnv1 & seStoryState .~ storyState
+                  -- Send the story messages to everybody.
 
-    sendErr tagConn err = sendJSON tagConn (RespError err)
+                  -- Send the user messages to the user only.
+                  
+                  -- Story the story messages in the database.
+                  
+                  -- Return the updated story environment.
+                  return storyEnv2
+            -- Loop.
+            decodeReq tagConn True
 
-wordwang :: WW ()
-wordwang = do
-    req <- ask
-    case req^.reqBody of
-        ReqStory -> respond . respToThis . respStory =<< use wwStory
-        ReqJoin -> do
-            -- TODO should we check if the user is already authenticated?
-            user <- User <$> liftIO randomIO <*> makeSecret
-            wwStory %= (storyUsers.at (user^.userId) ?~ user)
-            respond (respToAll (RespUser (user^.userId)))
-            respond (respToThis (RespJoined (user^.userId) (user^.userSecret)))
-        ReqCandidate body -> do
-            uid <- authenticated
-            let cand = candidate uid body
-            candsM <- use (wwStory . storyCandidates . at uid)
-            case candsM of
-                Just _ -> return ()
-                Nothing -> do
-                    wwBump .= True
-                    respond (respToAll (RespCandidate cand))
-                    wwStory %= (storyCandidates.at uid ?~ cand)
-        ReqVote candUid -> do
-            voteUid <- authenticated
-            candM <- use (wwStory . storyCandidates . at candUid)
-            case candM of
-                Just cand | not (HashSet.member voteUid (cand^.candVotes)) -> do
-                    wwBump .= True
-                    respond (respToAll (RespVote candUid voteUid))
-                    let cand' = cand & candVotes %~ HashSet.insert voteUid
-                    wwStory %= (storyCandidates.at candUid ?~ cand')
-                _ -> return ()
-        -- TODO for debugging, remove soon
-        ReqCloseVoting -> do
-            authenticated
-            story <- use wwStory
-            case HashMap.elems (story^.storyCandidates) of
-                [] -> return () -- TODO should we return an error?
-                cands@(_:_) -> do
-                    let cand  = maximumBy (comparing (HashSet.size . _candVotes))
-                                          cands
-                        block = cand^.candBlock
-                    respond (respToAll (RespVotingClosed block))
-                    wwStory %= (storyCandidates .~ HashMap.empty)
-                    wwStory %= (storyBlocks %~ (++ [block]))
+    sendErr tagConn err = sendJSON tagConn (RespError err :: Resp ())
+
+-- wordwang :: WW ()
+-- wordwang = do
+--     req <- ask
+--     case req^.reqBody of
+--         ReqStory -> respond . respToThis . respStory =<< use wwStory
+--         ReqJoin -> do
+--             -- TODO should we check if the user is already authenticated?
+--             user <- User <$> liftIO randomIO <*> makeSecret
+--             wwStory %= (storyUsers.at (user^.userId) ?~ user)
+--             respond (respToAll (RespUser (user^.userId)))
+--             respond (respToThis (RespJoined (user^.userId) (user^.userSecret)))
+--         ReqCandidate body -> do
+--             uid <- authenticated
+--             let cand = candidate uid body
+--             candsM <- use (wwStory . storyCandidates . at uid)
+--             case candsM of
+--                 Just _ -> return ()
+--                 Nothing -> do
+--                     wwBump .= True
+--                     respond (respToAll (RespCandidate cand))
+--                     wwStory %= (storyCandidates.at uid ?~ cand)
+--         ReqVote candUid -> do
+--             voteUid <- authenticated
+--             candM <- use (wwStory . storyCandidates . at candUid)
+--             case candM of
+--                 Just cand | not (HashSet.member voteUid (cand^.candVotes)) -> do
+--                     wwBump .= True
+--                     respond (respToAll (RespVote candUid voteUid))
+--                     let cand' = cand & candVotes %~ HashSet.insert voteUid
+--                     wwStory %= (storyCandidates.at candUid ?~ cand')
+--                 _ -> return ()
+--         -- TODO for debugging, remove soon
+--         ReqCloseVoting -> do
+--             authenticated
+--             story <- use wwStory
+--             case HashMap.elems (story^.storyCandidates) of
+--                 [] -> return () -- TODO should we return an error?
+--                 cands@(_:_) -> do
+--                     let cand  = maximumBy (comparing (HashSet.size . _candVotes))
+--                                           cands
+--                         block = cand^.candBlock
+--                     respond (respToAll (RespVotingClosed block))
+--                     wwStory %= (storyCandidates .~ HashMap.empty)
+--                     wwStory %= (storyBlocks %~ (++ [block]))

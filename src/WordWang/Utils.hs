@@ -1,15 +1,17 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# LANGUAGE ExistentialQuantification #-}
 module WordWang.Utils
     ( delPrefix
     , wwJSON
     , mapKeyVal
+    , tagJSON
     , toTaggedJSON
     , parseTagged
     , parseNullary
     , parseUnary
     , parseBinary
-    , TaggedConn
+    , TaggedConn(..)
+    , tcConn
+    , tcTag
     , sendJSON
     , debugMsg
     , infoMsg
@@ -21,7 +23,7 @@ module WordWang.Utils
     ) where
 
 import           Control.Concurrent (ThreadId, forkIO, throwTo, myThreadId)
-import           Control.Exception (mask, catch, SomeException)
+import           Control.Exception (mask, catches, SomeException, Handler(Handler), AsyncException, throwIO)
 import           Control.Monad (when)
 import           Data.Char (isUpper, toLower)
 import           Data.Int (Int64)
@@ -39,7 +41,7 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TL
 import qualified Data.Text.Lazy.Encoding as TL
 
-import           Control.Lens ((^.))
+import           Control.Lens ((^.), makeLenses)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import           Data.String.Combinators (quotes)
@@ -79,8 +81,11 @@ mapKeyVal fk kv =
     HashMap.foldrWithKey (\k v -> HashMap.insert (fk k) (kv v)) HashMap.empty
 {-# INLINE mapKeyVal #-}
 
+tagJSON :: (Text, [Aeson.Pair]) -> Aeson.Value
+tagJSON (tag, obj) = Aeson.object (("tag" Aeson..= tag) : obj)
+
 toTaggedJSON :: (a -> (Text, [Aeson.Pair])) -> a -> Aeson.Value
-toTaggedJSON f (f -> (tag, obj)) = Aeson.object $ (("tag" Aeson..= tag) : obj)
+toTaggedJSON f (f -> (tag, obj)) = tagJSON (tag, obj)
 
 parseTagged :: [(Text, Aeson.Object -> Aeson.Parser a)]
             -> Aeson.Value -> Aeson.Parser a
@@ -120,12 +125,17 @@ parseBinary f field1 field2 obj | Just x1 <- HashMap.lookup field1 obj
 parseBinary _ _ _ _ =
     fail "WordWang.Utils.parseBinary: expecting two fields"
 
-type TaggedConn = (WS.Connection, Int64)
+data TaggedConn = TaggedConn
+    { _tcConn :: WS.Connection
+    , _tcTag  :: Int64
+    }
+
+makeLenses ''TaggedConn
 
 sendJSON :: (Aeson.ToJSON a, Show a) => TaggedConn -> a -> IO ()
-sendJSON (conn, connId) req = do
-    debugMsg "[{}] sending response `{}'" (connId, JSONP req)
-    WS.sendTextData conn (Aeson.encode req)
+sendJSON taggedConn req = do
+    debugMsg "[{}] sending response `{}'" (taggedConn ^. tcTag, JSONP req)
+    WS.sendTextData (taggedConn ^. tcConn) (Aeson.encode req)
 
 logMsg :: (MonadIO m, Params ps) => LogLevel -> Format -> ps -> m ()
 logMsg pri fmt ps = do
@@ -167,4 +177,7 @@ instance Aeson.ToJSON a => Buildable (JSONP a) where
 supervise :: IO () -> IO ThreadId
 supervise m = mask $ \restore -> do
     tid <- myThreadId
-    forkIO (restore m `catch` \(e :: SomeException) -> throwTo tid e)
+    forkIO $
+      restore m `catches` [ Handler $ \(e :: AsyncException) -> throwIO e
+                          , Handler $ \(e :: SomeException)  -> throwTo tid e
+                          ]
