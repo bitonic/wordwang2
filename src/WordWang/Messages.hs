@@ -53,11 +53,11 @@ data Resp r
 
 data RespError
     = StoryNotPresent !StoryId
-    | InternalError !Text
+    | InternalError !String
     | NoCredentials
     | InvalidCredentials
-    | ErrorDecodingReq !Text
-    | NoStory
+    | ErrorDecodingReq !String
+    | ErrorApplyingResp !String
     deriving (Eq, Show)
 
 ------------------------------------------------------------------------
@@ -109,12 +109,12 @@ instance Aeson.FromJSON r => Aeson.FromJSON (Resp r) where
 
 instance Aeson.ToJSON RespError where
     toJSON = toTaggedJSON $ \case
-        StoryNotPresent sid -> ("storyNotPresent",    ["story" .= sid])
-        InternalError msg   -> ("internalError",      ["msg" .= msg])
-        NoCredentials       -> ("noCredentials",      [])
-        InvalidCredentials  -> ("invalidCredentials", [])
-        ErrorDecodingReq t  -> ("errorDecodingReq",   ["msg" .= Aeson.toJSON t])
-        NoStory             -> ("noStory",            [])
+        StoryNotPresent sid   -> ("storyNotPresent",    ["story" .= sid])
+        InternalError err     -> ("internalError",      ["msg" .= err])
+        NoCredentials         -> ("noCredentials",      [])
+        InvalidCredentials    -> ("invalidCredentials", [])
+        ErrorDecodingReq err  -> ("errorDecodingReq",   ["msg" .= err])
+        ErrorApplyingResp err -> ("errorApplyingResp",  ["msg" .= err])
 
 instance Aeson.FromJSON RespError where
     parseJSON = parseTagged
@@ -123,7 +123,7 @@ instance Aeson.FromJSON RespError where
         , ("noCredentials",      parseNullary NoCredentials)
         , ("invalidCredentials", parseNullary InvalidCredentials)
         , ("errorDecodingReq",   parseUnary   ErrorDecodingReq "msg")
-        , ("noStory",            parseNullary NoStory)
+        , ("errorApplyingResp",  parseUnary   ErrorApplyingResp "msg")
         ]
 
 instance Aeson.ToJSON StoryReq where

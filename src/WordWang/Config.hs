@@ -1,8 +1,9 @@
 module WordWang.Config
     ( LogLevel(..)
     , Config(..)
-    , cPersist
-    , cLogLevel
+    , confPersist
+    , confLogLevel
+    , confLogFunction
     , defaultConfig
     , Persist(..)
 
@@ -10,10 +11,14 @@ module WordWang.Config
     , getConfig
     ) where
 
+import           Control.Concurrent (MVar, newEmptyMVar, readMVar, isEmptyMVar, tryPutMVar)
+import           Control.Monad (unless)
+import           System.IO (stderr)
 import           System.IO.Unsafe (unsafePerformIO)
-import           Control.Concurrent (MVar, newEmptyMVar, readMVar, isEmptyMVar, putMVar)
 
 import           Control.Monad.Trans (MonadIO(..))
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.IO as TL
 
 import           Control.Lens (makeLenses)
 import qualified Database.PostgreSQL.Simple as PG
@@ -22,12 +27,13 @@ data LogLevel = DEBUG | INFO | ERROR
     deriving (Show, Eq, Ord)
 
 data Config = Config
-    { _cPersist  :: Persist
-    , _cLogLevel :: LogLevel
+    { _confPersist     :: Persist
+    , _confLogLevel    :: LogLevel
+    , _confLogFunction :: TL.Text -> IO ()
     }
 
 defaultConfig :: Config
-defaultConfig = Config NoPersist DEBUG
+defaultConfig = Config NoPersist DEBUG (TL.hPutStrLn stderr)
 
 data Persist
     = NoPersist
@@ -38,12 +44,15 @@ configVar :: MVar Config
 configVar = unsafePerformIO newEmptyMVar
 
 initConfig :: MonadIO m => Config -> m ()
-initConfig = liftIO . putMVar configVar
+initConfig config = liftIO $ do
+    wasEmpty <- tryPutMVar configVar config
+    unless wasEmpty $ error "WordWang.Config.initConfig: already initialised"
 
 getConfig :: MonadIO m => m Config
 getConfig = liftIO $ do
-    b <- isEmptyMVar configVar
-    if b then error "WordWang.Config.getConfig: not initialised"
-         else readMVar configVar
+    initialised <- isEmptyMVar configVar
+    if initialised
+      then error "WordWang.Config.getConfig: not initialised"
+      else readMVar configVar
 
 makeLenses ''Config

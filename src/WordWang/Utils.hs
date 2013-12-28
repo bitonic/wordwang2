@@ -14,22 +14,20 @@ module WordWang.Utils
     , debugMsg
     , infoMsg
     , errorMsg
-    , eitherUnzip
     , Only(..)
     , Shown(..)
     , JSONP(JSONP)
     , supervise
     ) where
 
-import           Control.Arrow (first, second)
 import           Control.Concurrent (ThreadId, forkIO, throwTo, myThreadId)
 import           Control.Exception (mask, catch, SomeException)
-import           Control.Monad (when, liftM)
+import           Control.Monad (when)
 import           Data.Char (isUpper, toLower)
 import           Data.Int (Int64)
 import           Data.List (stripPrefix)
 import           Data.Monoid ((<>))
-import           System.IO (stderr)
+
 
 import           Control.Monad.Trans (MonadIO(..))
 import           Data.HashMap.Strict (HashMap)
@@ -40,8 +38,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TL
 import qualified Data.Text.Lazy.Encoding as TL
-import qualified Data.Text.Lazy.IO as TL
 
+import           Control.Lens ((^.))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import           Data.String.Combinators (quotes)
@@ -61,15 +59,15 @@ import           WordWang.Config
 delPrefix :: String -> String -> String
 delPrefix prefix fieldName =
     case stripPrefix prefix fieldName of
-        Just ccs@(c:cs)
-            | isUpper c -> toLower c : cs
-            | null prefix -> ccs
-            | otherwise -> error $ "The field name after the prefix " ++
-                                   "must be written in CamelCase"
-        Just [] -> error $ "The field name after the prefix may not be empty"
-        Nothing -> error $ "The field name " ++ quotes fieldName ++
-                           " does not begin with the required prefix " ++
-                           quotes prefix
+      Just ccs@(c:cs)
+        | isUpper c -> toLower c : cs
+        | null prefix -> ccs
+        | otherwise -> error $ "The field name after the prefix " ++
+                               "must be written in CamelCase"
+      Just [] -> error $ "The field name after the prefix may not be empty"
+      Nothing -> error $ "The field name " ++ quotes fieldName ++
+                         " does not begin with the required prefix " ++
+                         quotes prefix
 
 wwJSON :: (String -> String) -> Aeson.Options
 wwJSON f = Aeson.defaultOptions{Aeson.fieldLabelModifier = f}
@@ -89,17 +87,20 @@ parseTagged :: [(Text, Aeson.Object -> Aeson.Parser a)]
 parseTagged table x = do
     obj :: Aeson.Object <- Aeson.parseJSON x
     case HashMap.lookup "tag" obj of
-        Nothing -> fail "parseTagged: no `tag'"
-        Just (Aeson.String tag) ->
-            case lookup tag table of
-                Just p -> p (HashMap.delete "tag" obj)
-                Nothing ->
-                    fail ("parseTagged: `" ++ T.unpack tag ++ "' not present")
-        Just _ -> fail "parseTagged: expected object"
+      Nothing -> failWithLoc "no `tag'"
+      Just (Aeson.String tag) ->
+        case lookup tag table of
+          Just p -> p (HashMap.delete "tag" obj)
+          Nothing ->
+            failWithLoc $ "`" ++ T.unpack tag ++ "' not present"
+      Just _ -> failWithLoc "expected object"
+  where
+    failWithLoc s = fail $"WorgWang.Utils.parseTagged: " ++ s
 
 parseNullary :: a -> Aeson.Object -> Aeson.Parser a
-parseNullary x obj | HashMap.null obj = return x
-                   | otherwise        = fail "nullary: expecting empty object"
+parseNullary x obj
+    | HashMap.null obj = return x
+    | otherwise        = fail "WordWang.Utils.parseNullary: expecting empty object"
 
 parseUnary :: Aeson.FromJSON a
            => (a -> b) -> Text -> Aeson.Object -> Aeson.Parser b
@@ -107,7 +108,7 @@ parseUnary f field obj | Just x <- HashMap.lookup field obj = do
     x' <- Aeson.parseJSON x
     parseNullary (f x') (HashMap.delete field obj)
 parseUnary _ _ _ =
-    fail "unary: expecting one field"
+    fail "WordWang.Utils.parseUnary: expecting one field"
 
 parseBinary :: (Aeson.FromJSON a, Aeson.FromJSON b)
             => (a -> b -> c) -> Text -> Text -> Aeson.Object -> Aeson.Parser c
@@ -117,7 +118,7 @@ parseBinary f field1 field2 obj | Just x1 <- HashMap.lookup field1 obj
     x2' <- Aeson.parseJSON x2
     parseNullary (f x1' x2') (HashMap.delete field1 (HashMap.delete field2 obj))
 parseBinary _ _ _ _ =
-    fail "binary: expecting two fields"
+    fail "WordWang.Utils.parseBinary: expecting two fields"
 
 type TaggedConn = (WS.Connection, Int64)
 
@@ -126,13 +127,13 @@ sendJSON (conn, connId) req = do
     debugMsg "[{}] sending response `{}'" (connId, JSONP req)
     WS.sendTextData conn (Aeson.encode req)
 
-stderrMsg :: (MonadIO m, Params ps) => TL.Text -> Format -> ps -> m ()
-stderrMsg pre fmt pars = liftIO (TL.hPutStrLn stderr (pre <> format fmt pars))
-
 logMsg :: (MonadIO m, Params ps) => LogLevel -> Format -> ps -> m ()
 logMsg pri fmt ps = do
-    minPri <- _cLogLevel `liftM` getConfig
-    when (pri >= minPri) (stderrMsg ("[" <> TL.pack (show pri) <> "] ") fmt ps)
+    conf <- getConfig
+    let minPri = conf ^. confLogLevel
+        logf   = conf ^. confLogFunction
+    when (pri >= minPri) $ liftIO $ logf $
+      ("[" <> TL.pack (show pri) <> "] ") <> format fmt ps
 
 debugMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
 debugMsg = logMsg DEBUG
@@ -143,11 +144,6 @@ infoMsg = logMsg INFO
 errorMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
 errorMsg = logMsg ERROR
 
-eitherUnzip :: (a -> Either b c) -> [a] -> ([b], [c])
-eitherUnzip _ [] = ([], [])
-eitherUnzip f (x : xs) =
-    either (first . (:)) (second . (:)) (f x) (eitherUnzip f xs)
-
 instance PG.ToField UUID where
     toField = PG.Escape . UUID.toASCIIBytes
 
@@ -156,9 +152,12 @@ instance PG.FromField UUID where
         if PG.typeOid fld /= $(PGTI.inlineTypoid PGTI.uuid)
         then PG.returnError PG.Incompatible fld ""
         else case bsm of
-            Nothing -> PG.returnError PG.UnexpectedNull fld ""
-            Just bs | Just u <- UUID.fromASCIIBytes bs -> return u
-            _ -> fail "WordWang.Utils FromField UUID: invalid bytes"
+          Nothing ->
+            PG.returnError PG.UnexpectedNull fld ""
+          Just bs | Just u <- UUID.fromASCIIBytes bs ->
+            return u
+          _ ->
+            fail "WordWang.Utils PG.FromField UUID: invalid bytes"
 
 newtype JSONP a = JSONP {unJSONP :: a}
 
