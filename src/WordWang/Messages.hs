@@ -4,7 +4,7 @@ module WordWang.Messages
     , reqAuth
     , reqBody
     , ReqAuth(..)
-    , reqAuthUser
+    , reqAuthUserId
     , reqAuthSecret
     , ReqBody(..)
 
@@ -32,7 +32,7 @@ data Req = Req
     } deriving (Eq, Show, Typeable)
 
 data ReqAuth = ReqAuth
-    { _reqAuthUser   :: !UserId
+    { _reqAuthUserId :: !UserId
     , _reqAuthSecret :: !UserSecret
     } deriving (Eq, Show, Typeable)
 

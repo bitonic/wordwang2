@@ -121,10 +121,10 @@ authenticated = do
         terminate NoCredentials
       Just auth -> do
         users <- use (wwRoom . rUsers)
-        let uid = auth ^. reqAuthUser
-        case users ^. at uid of
+        let userId = auth ^. reqAuthUserId
+        case users ^. at userId of
           Just user | auth ^. reqAuthSecret == user ^. uSecret ->
-            return uid
+            return userId
           _ ->
             terminate InvalidCredentials
 

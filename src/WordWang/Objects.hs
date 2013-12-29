@@ -154,11 +154,8 @@ applyPatchStory (PSVotingClosed block) story = do
     return $ story & (sCandidates .~ HashMap.empty) . (sBlocks %~ (++ [block]))
 applyPatchStory (PSCandidate candId cand) story = do
     case story ^. sCandidates ^. at candId of
-      Just _ -> do
-        -- The user has already proposed a candidate.
-        nothing
-      Nothing -> do
-        return $ story & sCandidates . at candId ?~ cand
+      Just _  -> nothing -- The user has already proposed a candidate.
+      Nothing -> return $ story & sCandidates . at candId ?~ cand
 applyPatchStory (PSVote candId userId) story = do
     case story ^. sCandidates ^. at candId of
       Nothing -> do
