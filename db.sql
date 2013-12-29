@@ -6,19 +6,19 @@ CREATE DATABASE wordwang;
 \connect wordwang;
 
 CREATE TABLE patches
-( roomId   uuid   NOT NULL
+( room_id  uuid   NOT NULL
 , revision bigint NOT NULL
 , patch    json   NOT NULL
-, PRIMARY KEY (storyId, revision)
+, PRIMARY KEY (room_id, revision)
 );
 
 ALTER TABLE patches OWNER TO wordwang;
 
 CREATE TABLE rooms
-( roomId   uuid    NOT NULL
+( room_id  uuid    NOT NULL
 , room     json    NOT NULL
 , revision bigint  NOT NULL
-, PRIMARY KEY (storyId)
+, PRIMARY KEY (room_id)
 );
 
 ALTER TABLE rooms OWNER TO wordwang;
