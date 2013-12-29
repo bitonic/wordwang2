@@ -186,10 +186,12 @@ instance (Aeson.FromJSON a, Typeable a) => PG.FromField (JSONed a) where
         else case mbBs of
           Nothing ->
             PG.returnError PG.UnexpectedNull fld ""
-          Just (Aeson.decodeStrict -> Just x) ->
+          -- TODO for some reson Aeson.decodeStrict doesn't work...
+          Just bs | Just x <- Aeson.decode (BL.fromStrict bs) ->
             return $ JSONed x
-          _ ->
-            fail "WordWang.Utils PG.FromField JSONed a: couldn't decode JSON"
+          Just bs ->
+            fail $ "WordWang.Utils PG.FromField JSONed a: " ++
+                   "couldn't decode JSON " ++ show bs
 
 supervise :: IO () -> IO ThreadId
 supervise m = mask $ \restore -> do

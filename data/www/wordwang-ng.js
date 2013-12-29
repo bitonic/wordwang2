@@ -20,11 +20,11 @@ wwApp.controller('WWCtrl', function WWCtrl($scope, $http) {
         $scope.create = function() {
             $http.get('/create').
                 success(function(data, _status, _headers, _config) {
-                    wwState.storyId = JSON.parse(data);
+                    wwState.roomId = JSON.parse(data);
                     createDiv.style.display = 'none';
                     storyDiv.style.display = 'block';
                     wwState.getStory();
-                    window.location = ww.storyUrl(wwState.storyId);
+                    window.location = ww.roomUrl(wwState.roomId);
                 }).
                 error(function(_data, _status, _headers, _config) {
                     ww.errorLog("error while creating story");
@@ -39,8 +39,8 @@ wwApp.controller('WWCtrl', function WWCtrl($scope, $http) {
             wwState.join();
         };
 
-        $scope.vote = function(user) {
-            wwState.vote(user);
+        $scope.vote = function(candidateId) {
+            wwState.vote(candidateId);
         };
 
         $scope.getStory = function() {
@@ -58,18 +58,18 @@ wwApp.controller('WWCtrl', function WWCtrl($scope, $http) {
         });
 
         // Show candidate on join
-        wwState.onResp('joined', function(_) {
+        wwState.onResp('join', function(_) {
             actions.style.display = 'block';
             joinButton.style.display = 'none';
         });
 
-        var storyId = ww.getHash();
-        if (storyId === null) {
+        var roomId = ww.getHash();
+        if (roomId === null) {
             createDiv.style.display = 'block';
         } else {
             storyDiv.style.display = 'block';
-            storyId = ww.getHash();
-            wwState.storyId = storyId;
+            roomId = ww.getHash();
+            wwState.roomId = roomId;
             wwState.getStory();
         }
     });

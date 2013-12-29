@@ -13,7 +13,6 @@ import           Data.Int (Int64)
 import           Control.Monad.Trans.Maybe (MaybeT(runMaybeT))
 
 import qualified Database.PostgreSQL.Simple as PG
-import qualified Database.PostgreSQL.Simple.Transaction as PG
 import           Database.PostgreSQL.Simple.SqlQQ (sql)
 
 import           WordWang.Utils
@@ -28,11 +27,11 @@ addRoom conn roomId room =
       (roomId, JSONed room)
 
 patchRoom :: PG.Connection -> RoomId -> [Patch] -> IO ()
-patchRoom conn roomId patches = withRetryingTransaction conn $ do
+patchRoom conn roomId patches = do
     revisions <- map PG.fromOnly <$> PG.query conn
       [sql| SELECT revision
               FROM patches
-              WHERE roomId = ?
+              WHERE room_id = ?
               ORDER BY revision DESC
               LIMIT 1
       |] (PG.Only roomId)
@@ -41,7 +40,7 @@ patchRoom conn roomId patches = withRetryingTransaction conn $ do
         roomsRevisions <- map PG.fromOnly <$> PG.query conn
           [sql| SELECT revision
                   FROM rooms
-                  WHERE roomId = ?
+                  WHERE room_id = ?
                   LIMIT 1
           |] (PG.Only roomId)
         case roomsRevisions of
@@ -64,24 +63,19 @@ patchRoom conn roomId patches = withRetryingTransaction conn $ do
     patchRoomError s = error $ "WordWang.PostgreSQL.patchRoom: " ++ s
 
 loadRooms :: PG.Connection -> IO [(RoomId, Room)]
-loadRooms conn = withRetryingTransaction conn $ do
+loadRooms conn = do
     revisionedRooms <- PG.query_ conn
-      [sql| SELECT (roomId, room, revision)
+      [sql| SELECT room_id, room, revision
               FROM rooms
       |]
     forM revisionedRooms $ \(roomId, (unJSONed -> room), revision) -> do
       patches <- map (unJSONed . PG.fromOnly) <$> PG.query conn
-        [sql| SELECT (patch)
+        [sql| SELECT patch
                 FROM patches
-                WHERE (roomId = ?)
-                  AND (revision > ?)
+                WHERE (room_id = ?) AND (revision > ?)
                 ORDER BY revision ASC
         |] (roomId :: RoomId, revision :: Revision)
       case runMaybeT (applyPatches patches room) of
         Left  err          -> error $ "WordWang.PostgreSQL.loadRooms: " ++ err
         Right Nothing      -> return (roomId, room)
         Right (Just room') -> return (roomId, room')
-
-withRetryingTransaction :: PG.Connection -> IO a -> IO a
-withRetryingTransaction =
-    PG.withTransactionModeRetry PG.defaultTransactionMode (const True)

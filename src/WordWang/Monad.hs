@@ -20,6 +20,7 @@ module WordWang.Monad
     ) where
 
 import           Control.Applicative (Applicative)
+import           Control.Monad (when)
 
 import           Control.Monad.State.Strict (StateT(runStateT), runStateT, MonadState)
 import           Control.Monad.Trans (MonadIO, lift)
@@ -49,9 +50,9 @@ newtype WW a =
     deriving (Functor, Applicative, Monad, MonadState WWState, MonadIO)
 
 runWW :: Req -> Room -> WW a -> IO (Either RespError (a, WWState))
-runWW req root m = do
+runWW req room m = do
     let wwst = WWState{ _wwReq     = req
-                      , _wwRoom    = root
+                      , _wwRoom    = room
                       , _wwPatches = B0
                       , _wwResps   = B0
                       }
@@ -60,17 +61,18 @@ runWW req root m = do
 terminate :: RespError -> WW a
 terminate = WW . lift . left
 
-patchRoom :: Patch -> WW ()
+patchRoom :: Patch -> WW Bool
 patchRoom patch = do
-    root <- use wwRoom
-    case runMaybeT (applyPatch patch root) of
+    room <- use wwRoom
+    case runMaybeT (applyPatch patch room) of
       Left err -> do
         terminate $ ErrorApplyingPatch err
       Right Nothing -> do
-        return ()
-      Right (Just root') -> do
-        wwRoom    .= root'
+        return False
+      Right (Just room') -> do
+        wwRoom    .= room'
         wwPatches %= (:< patch)
+        return True
 
 respond :: RespRecipient -> Resp -> WW ()
 respond recipient resp =
@@ -79,5 +81,5 @@ respond recipient resp =
 patchStoryAndRespond :: PatchStory -> WW ()
 patchStoryAndRespond patchStory = do
     let patch = PStory patchStory
-    patchRoom patch
-    respond All $ RespPatch patch
+    wasPatched <- patchRoom patch
+    when wasPatched $ respond All $ RespPatch patch

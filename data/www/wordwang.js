@@ -7,7 +7,7 @@ function applyHandlers(handlers, x) {
 
 var ww = {
     debug: true,
-    host: 'ws://localhost:8000/ws',
+    host: 'ws://localhost:8888/ws',
 
     // -----------------------------------------------------------------
     // Utils
@@ -20,7 +20,7 @@ var ww = {
         return hash;
     },
 
-    storyUrl: function(story) {
+    roomUrl: function(story) {
         var url = window.location.href.split('#')[0];
         return window.location = url + '#' + story;
     },
@@ -57,40 +57,28 @@ function WWState(host, onopen) {
     st.sock.onclose = function(event) {
         ww.debugLog("connection closed!");
     };
-    
+
     // Base handlers
-    st.onResp('joined', function(resp) {
-        st.user = {id: resp.user, secret: resp.secret};
+    st.onResp('join', function(resp) {
+        st.userId = resp.userId;
+        st.user   = resp.user;
     });
     st.onResp('story', function(resp) {
         st.story = resp.body;
     });
-    st.onResp('votingClosed', function(resp) {
-        st.story.candidates = {},
-        st.story.blocks.push(resp.block);
+    st.onResp('error', function(resp) {
+        // TODO do something
     });
-    st.onResp('candidate', function(resp) {
-        st.story.candidates[resp.body.user] = resp.body;
-    });
-    st.onResp('vote', function(resp) {
-        var votes = st.story.candidates[resp.candidate].votes;
-        // TODO Should I check here?
-        if (!(resp.vote in votes)) {
-            votes.push(resp.vote);
-        }
-    });
-    st.onResp('user', function(resp) {
-        var users = st.story.users;
-        if (!(resp.user in users)) {
-            users.push(resp.user);
-        }
+    st.onResp('patch', function(resp) {
+        st.applyPatch(resp.body);
     });
 }
 
 WWState.prototype = {
     sock: null,
-    storyId: null,
+    roomId: null,
     story: null,
+    userId: null,
     user: null,
     _onRespHandlers: {},
     _onRespGlobalHandlers: [],
@@ -103,12 +91,12 @@ WWState.prototype = {
     sendReq: function(tag, body) {
         body.tag = tag;
         var req = {
-            story: this.storyId,
-            auth : null,
-            body : body
+            roomId: this.roomId,
+            auth: null,
+            body: body
         };
         if (this.user !== null) {
-            req.auth = {user: this.user.id, secret: this.user.secret};
+            req.auth = {userId: this.userId, secret: this.user.secret};
         }
         var payload = JSON.stringify(req);
         ww.debugLog('sending `' + payload + "'");
@@ -128,8 +116,8 @@ WWState.prototype = {
         this.sendReq('candidate', {block: block});
     },
 
-    vote: function(user) {
-        this.sendReq('vote', {user: user});
+    vote: function(candidateId) {
+        this.sendReq('vote', {candidateId: candidateId});
     },
 
     closeVoting: function() {
@@ -155,6 +143,26 @@ WWState.prototype = {
                 this._onRespHandlers[tag] = [];
             }
             this._onRespHandlers[tag].push(f);
+        }
+    },
+
+    // -------------------------------------------------------------
+    // Patches
+
+    applyPatch: function(patch) {
+        var story = this.story;
+        if (patch.tag === 'votingClosed') {
+            story.candidates = {};
+            story.blocks.push(patch.block);
+        } else if (patch.tag === 'candidate') {
+            story.candidates[patch.candidateId] = patch.candidate;
+        } else if (patch.tag === 'vote') {
+            var votes = story.candidates[patch.candidateId].votes;
+            if (votes.indexOf(patch.userId) === -1) {
+                votes.push(patch.userId);
+            }
+        } else {
+            ww.errorLog('unrecognised patch ' + JSON.stringify(patch));
         }
     }
 };

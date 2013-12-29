@@ -17,17 +17,20 @@ module WordWang
     ) where
 
 import           Control.Concurrent.MVar (MVar, modifyMVar_, readMVar, newEmptyMVar, putMVar)
-import           Control.Exception (try)
-import           Control.Monad (filterM, void, unless)
+import           Control.Exception (catches, Handler(Handler))
+import           Control.Monad (filterM, void, unless, when)
 import           Data.Foldable (forM_, toList)
-import           Data.Functor ((<$>))
+import           Data.Functor ((<$>), (<$))
 import           Data.IORef (newIORef, atomicModifyIORef')
 import           Data.Int (Int64)
+import           Data.List (maximumBy)
+import           Data.Ord (comparing)
 
 import           Control.Monad.State (execStateT, StateT)
 import           Control.Monad.Trans (liftIO)
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.HashSet as HashSet
 import           System.Random (randomIO)
 
 import           Control.Lens
@@ -47,6 +50,8 @@ import           WordWang.Messages
 import           WordWang.Monad
 import qualified WordWang.PostgreSQL as WWPG
 
+
+import qualified Data.ByteString.Lazy.Char8 as BLC8
 
 data RoomEnv = RoomEnv
     { _roomEnvRoom        :: !Room
@@ -209,16 +214,23 @@ serverWW rootEnv m pending = do
               WWPG.patchRoom pgConn (req ^. reqRoomId) (toList $ wwst ^. wwPatches)
 
             -- Send the messages.
+            forM_ (wwst ^. wwResps) $ \(_, resp) ->
+              liftIO $ BLC8.putStrLn $ Aeson.encode resp
             forM_ (wwst ^. wwResps) $ \(recipient, resp) ->
               case recipient of
                 This -> sendJSON tagConn resp
                 All  -> do
                   conns <- use roomEnvConnections
                   conns' <- flip filterM conns $ \conn -> do
-                    mbIOEx <- liftIO $ try $ sendJSON conn resp
-                    return $ case mbIOEx of
-                      Left (_ :: WS.ConnectionException) -> False
-                      Right ()                           -> True
+                    liftIO $ (True <$ sendJSON conn resp) `catches`
+                      [ Handler $ \(_ :: WS.ConnectionException) -> do
+                          return False
+                      , Handler $ \(e :: IOError) -> do
+                          debugMsg
+                            "Closing connection {} due to IO error {}"
+                            (conn ^. tcTag, show e)
+                          return False
+                      ]
                   roomEnvConnections .= conns'
 
             -- Store the new room in the state.
@@ -226,26 +238,35 @@ serverWW rootEnv m pending = do
 
     sendErr tagConn = sendJSON tagConn . RespError
 
-canApplyPatch :: PatchStory -> WW ()
-canApplyPatch patchStory = do
-    authenticated_
-    case patchStory of
-      -- TODO this should throw an error when we have automatic story closing.
-      PSVotingClosed _ -> return ()
-      _                -> return ()
-
 wordwang :: WW ()
 wordwang = do
     req <- use wwReq
     case req ^. reqBody of
-      ReqPatch patchStory -> do
-        canApplyPatch patchStory
-        patchStoryAndRespond patchStory
+      ReqCandidate block -> do
+        userId <- authenticated
+        patchStoryAndRespond $ PSCandidate userId $ candidate userId block
+      -- TODO remove when we have automatic closing, or make it so that
+      -- only "administrators" can do this.
+      ReqCloseVoting -> do
+        authenticated_
+        story <- use (wwRoom . rStory)
+        case HashMap.elems (story ^. sCandidates) of
+          [] -> do
+            -- TODO should we return an error here?
+            return ()
+          cands@(_:_) -> do
+            let cand  = maximumBy (comparing (HashSet.size . _cVotes)) cands
+                block = cand ^. cBlock
+            patchStoryAndRespond $ PSVotingClosed block
+      ReqVote candidateId -> do
+        userId <- authenticated
+        patchStoryAndRespond $ PSVote candidateId userId
       ReqStory -> do
         story <- use (wwRoom . rStory)
         respond This $ RespStory story
       ReqJoin -> do
         userId <- liftIO randomIO
         user   <- User <$> makeSecret
-        patchRoom $ PNewUser userId user
-        respond This $ RespJoin userId user
+        -- TODO should we record an error if the patch fails?
+        wasPatched <- patchRoom $ PNewUser userId user
+        when wasPatched $ respond This $ RespJoin userId user

@@ -24,8 +24,11 @@
       <hr>
       Candidates:
       <div>
-        <span ng-repeat="candidate in story.candidates" ng-click="vote(candidate.user)">
-          <a href="" ng-click="vote(candidate.user)">{{candidate.block}} ({{candidate.votes.length}})</a>
+        <span ng-repeat="(candidateId, candidate) in story.candidates"
+              ng-click="vote(candidateId)">
+          <a href="" ng-click="vote(candidateId)">
+            {{candidate.block}} ({{candidate.votes.length}})
+          </a>
         </span>
       </div>
       <hr>

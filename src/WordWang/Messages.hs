@@ -37,7 +37,9 @@ data ReqAuth = ReqAuth
     } deriving (Eq, Show, Typeable)
 
 data ReqBody
-    = ReqPatch !PatchStory
+    = ReqCandidate !Block
+    | ReqCloseVoting
+    | ReqVote !CandidateId
     | ReqStory
     | ReqJoin
     deriving (Eq, Show, Typeable)
@@ -66,15 +68,19 @@ Aeson.deriveJSON (wwJSON $ delPrefix "_reqAuth")  ''ReqAuth
 
 instance Aeson.ToJSON ReqBody where
     toJSON = toTaggedJSON $ \case
-        ReqPatch patch    -> ("patch", ["body" .= patch])
-        ReqJoin           -> ("join",  [])
-        ReqStory          -> ("story", [])
+        ReqCandidate block -> ("candidate",   ["block" .= block])
+        ReqCloseVoting     -> ("closeVoting", [])
+        ReqVote candId     -> ("vote",        ["candidateId" .= candId])
+        ReqStory           -> ("story",       [])
+        ReqJoin            -> ("join",        [])
 
 instance Aeson.FromJSON ReqBody where
     parseJSON = parseTagged
-        [ ("patch", parseUnary   ReqPatch "body")
-        , ("join",  parseNullary ReqJoin)
-        , ("story", parseNullary ReqStory)
+        [ ("candidate",   parseUnary   ReqCandidate "block")
+        , ("closeVoting", parseNullary ReqCloseVoting)
+        , ("vote",        parseUnary   ReqVote "candidateId")
+        , ("story",       parseNullary ReqStory)
+        , ("join",        parseNullary ReqJoin)
         ]
 
 instance Aeson.ToJSON Resp where
