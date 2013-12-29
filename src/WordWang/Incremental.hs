@@ -14,43 +14,48 @@ import           Data.List.NonEmpty (NonEmpty(..))
 
 import           WordWang.Utils
 
-data Continue = Yes !(NonEmpty Int) | No !Int
+data ShouldContinue
+    = Yes !(NonEmpty Int)
+      -- ^ The worker should continue waiting.
+    | No !Int
+      -- ^ The worker should signal that we're done.
 
 data Incremental = Incremental
-    { incrContinue :: MVar Continue
+    { incrContinue :: MVar ShouldContinue
     , incrDone     :: MVar ()
-    , incrFirst    :: Int
     , incrNext     :: Int -> Maybe Int
     , incrTid      :: ThreadId
     }
 
 start :: Int -> (Int -> Maybe Int) -> IO Incremental
 start x f = do
-    cont <- newMVar (Yes (x :| []))
-    done <- newEmptyMVar
-    tid <- supervise (worker cont done)
-    return Incremental{ incrContinue = cont
-                      , incrDone     = done
-                      , incrFirst    = x
+    shouldContinueMV <- newMVar $ Yes (x :| [])
+    doneMV <- newEmptyMVar
+    tid <- supervise $ worker shouldContinueMV doneMV
+    return Incremental{ incrContinue = shouldContinueMV
+                      , incrDone     = doneMV
                       , incrNext     = f
                       , incrTid      = tid
                       }
   where
-    worker cont done = do
-        isDone <- modifyMVar cont $ \yn -> return $
-            case yn of
-                Yes (t :| ts) -> (No t, Just (sum (t : ts)))
-                No _          -> (error "the impossible happened", Nothing)
-        case isDone of
-            Nothing -> putMVar done () >> return ()
-            Just t  -> threadDelay t >> worker cont done
+    worker shouldContinueMV doneMV = do
+        mbWaitingTime <- modifyMVar shouldContinueMV $ \shouldContinue ->
+          return $ case shouldContinue of
+            Yes (t :| ts) -> (No t, Just (sum (t : ts)))
+            No _          -> (error "the impossible happened", Nothing)
+        case mbWaitingTime of
+          Nothing -> do
+            void $ putMVar doneMV ()
+          Just waitingTime  -> do
+            threadDelay waitingTime
+            worker shouldContinueMV doneMV
 
 bump :: Incremental -> IO ()
 bump Incremental{incrContinue = cont, incrNext = f} =
-    modifyMVar_ cont $ \yn -> return $
-        case yn of
-            Yes (t :| ts) | Just t' <- f t -> Yes (t' :| t : ts)
-            _ -> yn
+    modifyMVar_ cont $ \shouldContinue -> return $
+      case shouldContinue of
+        Yes (t :| ts) | Just t' <- f t -> Yes (t' :| t : ts)
+        _                              -> shouldContinue
 
 wait :: Incremental -> IO ()
 wait Incremental{incrDone = done} = readMVar done

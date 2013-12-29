@@ -18,7 +18,7 @@ module WordWang.Utils
     , errorMsg
     , Only(..)
     , Shown(..)
-    , JSONP(JSONP)
+    , JSONed(..)
     , supervise
     ) where
 
@@ -29,9 +29,10 @@ import           Data.Char (isUpper, toLower)
 import           Data.Int (Int64)
 import           Data.List (stripPrefix)
 import           Data.Monoid ((<>))
-
+import           Data.Typeable (Typeable)
 
 import           Control.Monad.Trans (MonadIO(..))
+import qualified Data.ByteString.Lazy as BL
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
 import           Data.Hashable (Hashable)
@@ -132,9 +133,9 @@ data TaggedConn = TaggedConn
 
 makeLenses ''TaggedConn
 
-sendJSON :: (Aeson.ToJSON a, Show a) => TaggedConn -> a -> IO ()
-sendJSON taggedConn req = do
-    debugMsg "[{}] sending response `{}'" (taggedConn ^. tcTag, JSONP req)
+sendJSON :: (Aeson.ToJSON a, Show a, MonadIO m) => TaggedConn -> a -> m ()
+sendJSON taggedConn req = liftIO $ do
+    debugMsg "[{}] sending response `{}'" (taggedConn ^. tcTag, JSONed req)
     WS.sendTextData (taggedConn ^. tcConn) (Aeson.encode req)
 
 logMsg :: (MonadIO m, Params ps) => LogLevel -> Format -> ps -> m ()
@@ -164,15 +165,31 @@ instance PG.FromField UUID where
         else case bsm of
           Nothing ->
             PG.returnError PG.UnexpectedNull fld ""
-          Just bs | Just u <- UUID.fromASCIIBytes bs ->
+          Just (UUID.fromASCIIBytes -> Just u) ->
             return u
           _ ->
             fail "WordWang.Utils PG.FromField UUID: invalid bytes"
 
-newtype JSONP a = JSONP {unJSONP :: a}
+newtype JSONed a = JSONed {unJSONed :: a}
+    deriving (Eq, Show, Typeable)
 
-instance Aeson.ToJSON a => Buildable (JSONP a) where
-    build = TL.fromLazyText . TL.decodeUtf8 . Aeson.encode . unJSONP
+instance Aeson.ToJSON a => Buildable (JSONed a) where
+    build = TL.fromLazyText . TL.decodeUtf8 . Aeson.encode . unJSONed
+
+instance Aeson.ToJSON a => PG.ToField (JSONed a) where
+    toField = PG.Escape . BL.toStrict . Aeson.encode . unJSONed
+
+instance (Aeson.FromJSON a, Typeable a) => PG.FromField (JSONed a) where
+    fromField fld mbBs =
+        if PG.typeOid fld /= $(PGTI.inlineTypoid PGTI.json)
+        then PG.returnError PG.Incompatible fld ""
+        else case mbBs of
+          Nothing ->
+            PG.returnError PG.UnexpectedNull fld ""
+          Just (Aeson.decodeStrict -> Just x) ->
+            return $ JSONed x
+          _ ->
+            fail "WordWang.Utils PG.FromField JSONed a: couldn't decode JSON"
 
 supervise :: IO () -> IO ThreadId
 supervise m = mask $ \restore -> do

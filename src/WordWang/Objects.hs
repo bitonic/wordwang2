@@ -15,26 +15,29 @@ module WordWang.Objects
     , cVotes
     , candidate
 
-    , StoryId
     , Block
     , Story(..)
     , sCandidates
     , sBlocks
     , emptyStory
 
-    , Root(..)
+    , RoomId
+    , Room(..)
     , rStory
     , rUsers
+    , emptyRoom
 
     , PatchStory(..)
     , Patch(..)
     , applyPatch
+    , applyPatches
     ) where
 
 import           Control.Applicative ((<|>))
 import           Control.Arrow (first)
 import           Data.Functor ((<$>))
 import           Data.Traversable (traverse)
+import           Data.Typeable (Typeable)
 
 import           Control.Monad.Trans (lift)
 import           Control.Monad.Trans.Maybe (MaybeT(MaybeT))
@@ -59,7 +62,7 @@ import qualified Database.PostgreSQL.Simple.ToField as PG
 import           WordWang.Utils
 
 newtype Id = Id {unId :: UUID.UUID}
-    deriving (Eq, Ord, PG.ToField, PG.FromField)
+    deriving (Eq, Typeable, PG.ToField, PG.FromField)
 
 instance Show Id where
     showsPrec n = showsPrec n . unId
@@ -75,13 +78,13 @@ type UserId = Id
 type UserSecret = ByteString
 data User = User
     { _uSecret     :: !UserSecret -- TODO Hash the secret
-    } deriving (Eq, Show)
+    } deriving (Eq, Show, Typeable)
 
 type CandidateId = UserId
 data Candidate = Candidate
     { _cBlock :: !Block
     , _cVotes :: !(HashSet UserId)
-    } deriving (Eq, Show)
+    } deriving (Eq, Show, Typeable)
 
 candidate :: UserId -> Block -> Candidate
 candidate uid block =
@@ -89,29 +92,34 @@ candidate uid block =
              , _cVotes = HashSet.singleton uid
              }
 
-type StoryId = Id
 type Block = Text
 data Story = Story
     { _sBlocks     :: ![Block]
     , _sCandidates :: !(HashMap CandidateId Candidate)
-    } deriving (Eq, Show)
+    } deriving (Eq, Show, Typeable)
 
 emptyStory :: Story
 emptyStory = Story{ _sBlocks     = []
                   , _sCandidates = HashMap.empty
                   }
 
-data Root = Root
+type RoomId = Id
+data Room = Room
     { _rStory :: Story
     , _rUsers :: !(HashMap UserId User)
-    } deriving (Eq, Show)
+    } deriving (Eq, Show, Typeable)
+
+emptyRoom :: Room
+emptyRoom = Room{ _rStory = emptyStory
+                , _rUsers = HashMap.empty
+                }
 
 ----------------------------------------------------------------------
 
 makeLenses ''User
 makeLenses ''Candidate
 makeLenses ''Story
-makeLenses ''Root
+makeLenses ''Room
 
 ----------------------------------------------------------------------
 
@@ -119,20 +127,24 @@ data PatchStory
     = PSVotingClosed !Block
     | PSCandidate !CandidateId !Candidate
     | PSVote !CandidateId !UserId
-    deriving (Eq, Show)
+    deriving (Eq, Show, Typeable)
 
 data Patch
     = PStory !PatchStory
     | PNewUser !UserId !User
-    deriving (Eq, Show)
+    deriving (Eq, Show, Typeable)
 
-applyPatch :: Patch -> Root -> MaybeT (Either String) Root
+applyPatch :: Patch -> Room -> MaybeT (Either String) Room
 applyPatch (PStory patchStory) root = do
     story <- applyPatchStory patchStory (root ^. rStory)
     return $ root & rStory .~ story
 applyPatch (PNewUser userId user) root = do
     -- TODO should we check that the user doesn't exist?
     return $ root & rUsers . at userId ?~ user
+
+applyPatches :: [Patch] -> Room -> MaybeT (Either String) Room
+applyPatches []                room = return room
+applyPatches (patch : patches) room = applyPatches patches =<< applyPatch patch room
 
 nothing :: Monad m => MaybeT m a
 nothing = MaybeT $ return Nothing
@@ -187,7 +199,7 @@ instance Aeson.FromJSON v => Aeson.FromJSON (HashMap Id v) where
 Aeson.deriveJSON (wwJSON $ delPrefix "_u") ''User
 Aeson.deriveJSON (wwJSON $ delPrefix "_c") ''Candidate
 Aeson.deriveJSON (wwJSON $ delPrefix "_s") ''Story
-Aeson.deriveJSON (wwJSON $ delPrefix "_r") ''Root
+Aeson.deriveJSON (wwJSON $ delPrefix "_r") ''Room
 
 instance Aeson.ToJSON Patch where
     toJSON (PStory patchStory) =

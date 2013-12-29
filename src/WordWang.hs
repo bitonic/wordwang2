@@ -1,35 +1,30 @@
--- TODO track WS connections requests in the logging
--- TODO check the various forkIOs and make sure that those threads won't
---      be left dangling in bad ways
 module WordWang
     ( module WordWang.Messages
     , module WordWang.Monad
     , module WordWang.Objects
 
-    , Stories
-    , createStory'
-    , createStory
+    , RoomEnv(..)
+    , reRoom
+    , reConnections
+    , Rooms
+    , restoreRoom
+    , addRoom
     , serverWW
---    , wordwang
+    , wordwang
     ) where
 
-import           Control.Applicative ((<*>))
-import           Control.Concurrent.MVar (MVar, newMVar, modifyMVar_, readMVar)
-import           Control.Exception (catch)
-import           Control.Monad (filterM, when, void, unless)
-import           Data.Foldable (toList)
-import           Data.Functor ((<$>), (<$))
-import           Data.IORef (newIORef, modifyIORef', atomicModifyIORef')
+import           Control.Concurrent.MVar (MVar, modifyMVar_, readMVar, newEmptyMVar, putMVar)
+import           Control.Exception (try)
+import           Control.Monad (filterM, void, unless)
+import           Data.Foldable (forM_)
+import           Data.Functor ((<$>))
+import           Data.IORef (newIORef, atomicModifyIORef')
 import           Data.Int (Int64)
-import           Data.List (maximumBy)
-import           Data.Ord (comparing)
 
-import           Control.Monad.Reader (ask)
+import           Control.Monad.State (execStateT, StateT)
 import           Control.Monad.Trans (liftIO)
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
-import qualified Data.HashSet as HashSet
-import qualified Data.Text as Text
 import           System.Random (randomIO)
 
 import           Control.Lens
@@ -41,30 +36,25 @@ import qualified Network.WebSockets as WS
 import           Snap (Snap)
 import qualified Snap as Snap
 
-import           WordWang.Bwd
-import           WordWang.Config
-import           WordWang.Incremental (Incremental)
-import qualified WordWang.Incremental as Incre
+import           WordWang.Utils
+import           WordWang.Objects
 import           WordWang.Messages
 import           WordWang.Monad
-import           WordWang.Objects
-import           WordWang.State
-import           WordWang.Utils
 
-data StoryEnv = StoryEnv
-    { _seStoryState  :: StoryState
-    , _seConnections :: [TaggedConn]
-    , _seIncremental :: Incremental
+
+data RoomEnv = RoomEnv
+    { _reRoom        :: !Room
+    , _reConnections :: ![TaggedConn]
     }
 
-makeLenses ''StoryEnv
+makeLenses ''RoomEnv
 
-type Stories = MVar (HashMap StoryId (MVar StoryEnv))
+type Rooms = MVar (HashMap RoomId (MVar RoomEnv))
 
-internalError :: String -> WW req a
+internalError :: String -> WW a
 internalError = terminate . InternalError
 
-makeSecret :: WW req UserSecret
+makeSecret :: WW UserSecret
 makeSecret = do
     gen <- liftIO (newGenIO :: IO HashDRBG)
     case genBytes 15 gen of
@@ -76,7 +66,7 @@ makeSecret = do
 -- increWorker :: MVar Story -> Worker.Ref RespWorkerMsg
 --             -> IO (Worker.Send IncreWorkerMsg -> Worker IncreWorkerMsg)
 -- increWorker storyMv respWRef = do
---     sid <- _storyId <$> readMVar storyMv
+--     sid <- _roomId <$> readMVar storyMv
 --     return $ \send -> Worker
 --         { workerName = Text.pack (show sid ++ "-incre")
 --         , workerStart = return Nothing
@@ -111,14 +101,14 @@ makeSecret = do
 --                     return (story' & storyBlocks %~ (++ [block]))
 --         return increM
 
-authenticated :: WW req UserId
+authenticated :: WW UserId
 authenticated = do
     mbAuth <- use (wwReq . reqAuth)
     case mbAuth of
       Nothing -> do
         terminate NoCredentials
       Just auth -> do
-        users <- use (wwStoryState . ssUsers)
+        users <- use (wwRoom . rUsers)
         let uid = auth ^. reqAuthUser
         case users ^. at uid of
           Just user | auth ^. reqAuthSecret == user ^. uSecret ->
@@ -126,22 +116,28 @@ authenticated = do
           _ ->
             terminate InvalidCredentials
 
-createStory' :: StoryId -> Story -> Stories -> IO ()
-createStory' storyId story storiesMv = modifyMVar_ storiesMv $ \stories -> do
-    storyMv <- newMVar story
-    return undefined
+authenticated_ :: WW ()
+authenticated_ = void authenticated
 
-createStory :: Stories -> Snap ()
-createStory storiesMv = do
-    storyId <- liftIO randomIO
-    liftIO $ createStory' storyId emptyStory storiesMv
+restoreRoom :: RoomId -> Room -> Rooms -> IO ()
+restoreRoom roomId room roomsMv = modifyMVar_ roomsMv $ \rooms -> do
+    roomMv <- newEmptyMVar
+    putMVar roomMv RoomEnv{ _reRoom        = room
+                          , _reConnections = []
+                          }
+    return $ HashMap.insert roomId roomMv rooms
+
+addRoom :: Rooms -> Snap ()
+addRoom roomsMv = do
+    roomId <- liftIO randomIO
+    -- TODO add the room to the DB
+    liftIO $ restoreRoom roomId emptyRoom roomsMv
     Snap.modifyResponse $
         Snap.setResponseCode 200 . Snap.setContentType "text/json"
-    Snap.writeLBS (Aeson.encode storyId)
+    Snap.writeLBS (Aeson.encode roomId)
 
-serverWW :: forall req. (Aeson.FromJSON req, Aeson.ToJSON req)
-         => Stories -> WW req () -> WS.ServerApp
-serverWW storiesMv m pending = do
+serverWW :: Rooms -> WW () -> WS.ServerApp
+serverWW roomsMv m pending = do
     countRef <- newIORef (0 :: Int64)
     go countRef
   where
@@ -150,98 +146,83 @@ serverWW storiesMv m pending = do
         connId <- atomicModifyIORef' countRef (\c -> (c, c + 1))
         decodeReq (TaggedConn conn connId) False
 
-    decodeReq (tagConn :: TaggedConn) isReg = do
+    decodeReq tagConn isReg = do
         reqm <- Aeson.eitherDecode <$> WS.receiveData (tagConn ^. tcConn)
         case reqm of
           Left err -> do
             sendErr tagConn $ ErrorDecodingReq err
             decodeReq tagConn isReg
-          Right (req :: Req req) -> do
-            debugMsg "[{}] received request `{}'" (tagConn ^. tcTag, JSONP req)
+          Right req -> do
+            debugMsg "[{}] received request `{}'" (tagConn ^. tcTag, JSONed req)
             handleReq tagConn isReg req
 
-    handleReq (tagConn :: TaggedConn) isReg req = do
-        let sid = req^.reqStory
-        stories <- readMVar storiesMv
-        case stories ^. at sid of
+    handleReq tagConn isReg req = do
+        let roomId = req ^. reqRoom
+        rooms <- readMVar roomsMv
+        case rooms ^. at roomId of
           Nothing -> do
-            sendErr tagConn $ StoryNotPresent sid
+            sendErr tagConn $ RoomNotPresent roomId
             decodeReq tagConn isReg
           -- TODO right now we lock everything with the state.  We
           -- should really do this asynchronously.
-          Just storyEnvMv -> do
-            modifyMVar_ storyEnvMv $ \storyEnv0 -> do
-              -- Add the current connection to the list, if not registered.
-              let storyEnv1 = if isReg
-                              then storyEnv0
-                              else storyEnv0 & seConnections %~ (tagConn :)
-              -- Run the monadic action.
-              result <- runWW req (storyEnv1 ^. seStoryState) m
-              case result of
-                -- If the monadic action went wrong, just send a
-                -- response with the error, without writing anything or
-                -- modifying the state.
-                Left err -> do
-                  sendJSON tagConn (RespError err :: Resp ())
-                  return $ storyEnv1
-                -- Otherwise...
-                Right ((), wwst) -> do
-                  let storyState = wwst ^. wwStoryState
-                      storyEnv2  = storyEnv1 & seStoryState .~ storyState
-                  -- Send the story messages to everybody.
-
-                  -- Send the user messages to the user only.
-                  
-                  -- Story the story messages in the database.
-                  
-                  -- Return the updated story environment.
-                  return storyEnv2
-            -- Loop.
+          Just envMv -> do
+            modifyMVar_ envMv $ execStateT (processEnv tagConn isReg req)
             decodeReq tagConn True
 
-    sendErr tagConn err = sendJSON tagConn (RespError err :: Resp ())
+    processEnv :: TaggedConn -> Bool -> Req -> StateT RoomEnv IO ()
+    processEnv tagConn isReg req = do
+        -- Add the current connection to the list, if not registered.
+        unless isReg $ reConnections %= (tagConn :)
+        -- Run the monadic action.
+        room <- use reRoom
+        result <- liftIO $ runWW req room m
+        case result of
+          -- If the monadic action went wrong, just send a response with
+          -- the error, without writing anything or modifying the state.
+          Left err -> do
+            sendJSON tagConn $ RespError err
+          -- Otherwise...
+          Right ((), wwst) -> do
+            let room' = wwst ^. wwRoom
+            reRoom .= room'
+            -- Store the patches in the database.
+            forM_ (wwst ^. wwPatches) $ \patch -> do
+              return ()
+            -- Send the messages.
+            forM_ (wwst ^. wwResps) $ \(recipient, resp) ->
+              case recipient of
+                This -> sendJSON tagConn resp
+                All  -> do
+                  conns <- use reConnections
+                  conns' <- flip filterM conns $ \conn -> do
+                    mbIOEx <- liftIO $ try $ sendJSON conn resp
+                    return $ case mbIOEx of
+                      Left (_ :: WS.ConnectionException) -> False
+                      Right ()                           -> True
+                  reConnections .= conns'
 
--- wordwang :: WW ()
--- wordwang = do
---     req <- ask
---     case req^.reqBody of
---         ReqStory -> respond . respToThis . respStory =<< use wwStory
---         ReqJoin -> do
---             -- TODO should we check if the user is already authenticated?
---             user <- User <$> liftIO randomIO <*> makeSecret
---             wwStory %= (storyUsers.at (user^.userId) ?~ user)
---             respond (respToAll (RespUser (user^.userId)))
---             respond (respToThis (RespJoined (user^.userId) (user^.userSecret)))
---         ReqCandidate body -> do
---             uid <- authenticated
---             let cand = candidate uid body
---             candsM <- use (wwStory . storyCandidates . at uid)
---             case candsM of
---                 Just _ -> return ()
---                 Nothing -> do
---                     wwBump .= True
---                     respond (respToAll (RespCandidate cand))
---                     wwStory %= (storyCandidates.at uid ?~ cand)
---         ReqVote candUid -> do
---             voteUid <- authenticated
---             candM <- use (wwStory . storyCandidates . at candUid)
---             case candM of
---                 Just cand | not (HashSet.member voteUid (cand^.candVotes)) -> do
---                     wwBump .= True
---                     respond (respToAll (RespVote candUid voteUid))
---                     let cand' = cand & candVotes %~ HashSet.insert voteUid
---                     wwStory %= (storyCandidates.at candUid ?~ cand')
---                 _ -> return ()
---         -- TODO for debugging, remove soon
---         ReqCloseVoting -> do
---             authenticated
---             story <- use wwStory
---             case HashMap.elems (story^.storyCandidates) of
---                 [] -> return () -- TODO should we return an error?
---                 cands@(_:_) -> do
---                     let cand  = maximumBy (comparing (HashSet.size . _candVotes))
---                                           cands
---                         block = cand^.candBlock
---                     respond (respToAll (RespVotingClosed block))
---                     wwStory %= (storyCandidates .~ HashMap.empty)
---                     wwStory %= (storyBlocks %~ (++ [block]))
+    sendErr tagConn = sendJSON tagConn . RespError
+
+canApplyPatch :: PatchStory -> WW ()
+canApplyPatch patchStory = do
+    authenticated_
+    case patchStory of
+      -- TODO this should throw an error when we have automatic story closing.
+      PSVotingClosed _ -> return ()
+      _                -> return ()
+
+wordwang :: WW ()
+wordwang = do
+    req <- use wwReq
+    case req ^. reqBody of
+      ReqPatch patchStory -> do
+        canApplyPatch patchStory
+        patchStoryAndRespond patchStory
+      ReqStory -> do
+        story <- use (wwRoom . rStory)
+        respond This $ RespStory story
+      ReqJoin -> do
+        userId <- liftIO randomIO
+        user   <- User <$> makeSecret
+        patchRoom $ PNewUser userId user
+        respond This $ RespJoin userId user

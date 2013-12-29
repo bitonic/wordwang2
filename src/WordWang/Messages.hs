@@ -1,15 +1,18 @@
 module WordWang.Messages
     ( Req(..)
-    , reqStory
+    , reqRoom
     , reqAuth
     , reqBody
     , ReqAuth(..)
     , reqAuthUser
     , reqAuthSecret
+    , ReqBody(..)
 
     , Resp(..)
     , RespError(..)
     ) where
+
+import           Data.Typeable (Typeable)
 
 import           Control.Lens (makeLenses)
 import           Data.Aeson ((.=))
@@ -23,37 +26,37 @@ import           WordWang.Utils
 -- Request
 
 data Req = Req
-    { _reqStory :: !StoryId
-    , _reqAuth  :: !(Maybe ReqAuth)
-    , _reqBody  :: !ReqBody
-    } deriving (Eq, Show)
+    { _reqRoom :: !RoomId
+    , _reqAuth :: !(Maybe ReqAuth)
+    , _reqBody :: !ReqBody
+    } deriving (Eq, Show, Typeable)
 
 data ReqAuth = ReqAuth
     { _reqAuthUser   :: !UserId
     , _reqAuthSecret :: !UserSecret
-    } deriving (Eq, Show)
+    } deriving (Eq, Show, Typeable)
 
 data ReqBody
     = ReqPatch !PatchStory
     | ReqStory
     | ReqJoin
-    deriving (Eq, Show)
+    deriving (Eq, Show, Typeable)
 
 data Resp
     = RespPatch !Patch
     | RespStory !Story
     | RespJoin !UserId !User
     | RespError !RespError
-    deriving (Eq, Show)
+    deriving (Eq, Show, Typeable)
 
 data RespError
-    = StoryNotPresent !StoryId
+    = RoomNotPresent !RoomId
     | InternalError !String
     | NoCredentials
     | InvalidCredentials
     | ErrorDecodingReq !String
     | ErrorApplyingPatch !String
-    deriving (Eq, Show)
+    deriving (Eq, Show, Typeable)
 
 ------------------------------------------------------------------------
 -- JSON instances
@@ -87,7 +90,7 @@ instance Aeson.ToJSON Resp where
 
 instance Aeson.FromJSON Resp where
     parseJSON = parseTagged
-        [ ("join",   parseBinary RespJoin "userId" "user")
+        [ ("join",   parseBinary RespJoin  "userId" "user")
         , ("story",  parseUnary  RespStory "body")
         , ("patch",  parseUnary  RespPatch "body")
         , ("error",  parseUnary  RespError "body")
@@ -95,21 +98,21 @@ instance Aeson.FromJSON Resp where
 
 instance Aeson.ToJSON RespError where
     toJSON = toTaggedJSON $ \case
-        StoryNotPresent storyId -> ("storyNotPresent",    ["storyId" .= storyId])
-        InternalError err       -> ("internalError",      ["msg" .= err])
-        NoCredentials           -> ("noCredentials",      [])
-        InvalidCredentials      -> ("invalidCredentials", [])
-        ErrorDecodingReq err    -> ("errorDecodingReq",   ["msg" .= err])
-        ErrorApplyingPatch err  -> ("errorApplyingResp",  ["msg" .= err])
+        RoomNotPresent roomId  -> ("roomNotPresent",     ["roomId" .= roomId])
+        InternalError err      -> ("internalError",      ["msg" .= err])
+        NoCredentials          -> ("noCredentials",      [])
+        InvalidCredentials     -> ("invalidCredentials", [])
+        ErrorDecodingReq err   -> ("errorDecodingReq",   ["msg" .= err])
+        ErrorApplyingPatch err -> ("errorApplyingResp",  ["msg" .= err])
 
 instance Aeson.FromJSON RespError where
     parseJSON = parseTagged
-        [ ("storyNotPresent",     parseUnary   StoryNotPresent "story")
-        , ("internalError",       parseUnary   InternalError "msg")
-        , ("noCredentials",       parseNullary NoCredentials)
-        , ("invalidCredentials",  parseNullary InvalidCredentials)
-        , ("errorDecodingReq",    parseUnary   ErrorDecodingReq "msg")
-        , ("errorApplyingPatch",  parseUnary   ErrorApplyingPatch "msg")
+        [ ("roomNotPresent",     parseUnary   RoomNotPresent "roomId")
+        , ("internalError",      parseUnary   InternalError "msg")
+        , ("noCredentials",      parseNullary NoCredentials)
+        , ("invalidCredentials", parseNullary InvalidCredentials)
+        , ("errorDecodingReq",   parseUnary   ErrorDecodingReq "msg")
+        , ("errorApplyingPatch", parseUnary   ErrorApplyingPatch "msg")
         ]
 
 ----------------------------------------------------------------------

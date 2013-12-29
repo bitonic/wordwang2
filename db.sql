@@ -5,18 +5,20 @@ DROP DATABASE IF EXISTS wordwang;
 CREATE DATABASE wordwang;
 \connect wordwang;
 
-CREATE TABLE resps
-( id     SERIAL
-, resp   json NOT NULL
-, PRIMARY KEY (id)
+CREATE TABLE patches
+( roomId   uuid   NOT NULL
+, revision bigint NOT NULL
+, patch    json   NOT NULL
+, PRIMARY KEY (storyId, revision)
 );
 
-ALTER TABLE resps OWNER TO wordwang;
+ALTER TABLE patches OWNER TO wordwang;
 
-CREATE TABLE complete_stories
-( id    uuid NOT NULL
-, story json NOT NULL
-, PRIMARY KEY (id)
+CREATE TABLE rooms
+( roomId   uuid    NOT NULL
+, room     json    NOT NULL
+, revision bigint  NOT NULL
+, PRIMARY KEY (storyId)
 );
 
-ALTER TABLE complete_stories OWNER TO wordwang;
+ALTER TABLE rooms OWNER TO wordwang;
