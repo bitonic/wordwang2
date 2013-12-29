@@ -1,6 +1,6 @@
 module WordWang.Messages
     ( Req(..)
-    , reqRoom
+    , reqRoomId
     , reqAuth
     , reqBody
     , ReqAuth(..)
@@ -26,9 +26,9 @@ import           WordWang.Utils
 -- Request
 
 data Req = Req
-    { _reqRoom :: !RoomId
-    , _reqAuth :: !(Maybe ReqAuth)
-    , _reqBody :: !ReqBody
+    { _reqRoomId :: !RoomId
+    , _reqAuth   :: !(Maybe ReqAuth)
+    , _reqBody   :: !ReqBody
     } deriving (Eq, Show, Typeable)
 
 data ReqAuth = ReqAuth

@@ -4,9 +4,12 @@ module WordWang
     , module WordWang.Objects
 
     , RoomEnv(..)
-    , reRoom
-    , reConnections
-    , Rooms
+    , roomEnvRoom
+    , roomEnvConnections
+    , roomEnvPGPool
+    , RootEnv(..)
+    , rootEnvRooms
+    , rootEnvPGPool
     , restoreRoom
     , addRoom
     , serverWW
@@ -16,7 +19,7 @@ module WordWang
 import           Control.Concurrent.MVar (MVar, modifyMVar_, readMVar, newEmptyMVar, putMVar)
 import           Control.Exception (try)
 import           Control.Monad (filterM, void, unless)
-import           Data.Foldable (forM_)
+import           Data.Foldable (forM_, toList)
 import           Data.Functor ((<$>))
 import           Data.IORef (newIORef, atomicModifyIORef')
 import           Data.Int (Int64)
@@ -32,6 +35,8 @@ import           Crypto.Random (genBytes, newGenIO)
 import           Crypto.Random.DRBG (HashDRBG)
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Base64.URL as Base64.URL
+import           Data.Pool (Pool, withResource)
+import qualified Database.PostgreSQL.Simple as PG
 import qualified Network.WebSockets as WS
 import           Snap (Snap)
 import qualified Snap as Snap
@@ -40,16 +45,23 @@ import           WordWang.Utils
 import           WordWang.Objects
 import           WordWang.Messages
 import           WordWang.Monad
+import qualified WordWang.PostgreSQL as WWPG
 
 
 data RoomEnv = RoomEnv
-    { _reRoom        :: !Room
-    , _reConnections :: ![TaggedConn]
+    { _roomEnvRoom        :: !Room
+    , _roomEnvConnections :: ![TaggedConn]
+    , _roomEnvPGPool      :: !(Pool PG.Connection)
+    }
+
+data RootEnv = RootEnv
+    { _rootEnvRooms  :: MVar (HashMap RoomId (MVar RoomEnv))
+    , _rootEnvPGPool :: !(Pool PG.Connection)
     }
 
 makeLenses ''RoomEnv
+makeLenses ''RootEnv
 
-type Rooms = MVar (HashMap RoomId (MVar RoomEnv))
 
 internalError :: String -> WW a
 internalError = terminate . InternalError
@@ -119,25 +131,33 @@ authenticated = do
 authenticated_ :: WW ()
 authenticated_ = void authenticated
 
-restoreRoom :: RoomId -> Room -> Rooms -> IO ()
-restoreRoom roomId room roomsMv = modifyMVar_ roomsMv $ \rooms -> do
-    roomMv <- newEmptyMVar
-    putMVar roomMv RoomEnv{ _reRoom        = room
-                          , _reConnections = []
-                          }
-    return $ HashMap.insert roomId roomMv rooms
+restoreRoom :: RoomId -> Room -> RootEnv -> IO ()
+restoreRoom roomId room rootEnv =
+    modifyMVar_ (rootEnv ^. rootEnvRooms) $ \rooms -> do
+      roomMv <- newEmptyMVar
+      putMVar roomMv RoomEnv{ _roomEnvRoom        = room
+                            , _roomEnvConnections = []
+                            , _roomEnvPGPool      = rootEnv ^. rootEnvPGPool
+                            }
+      return $ HashMap.insert roomId roomMv rooms
 
-addRoom :: Rooms -> Snap ()
-addRoom roomsMv = do
+addRoom :: RootEnv -> Snap ()
+addRoom rootEnv = do
     roomId <- liftIO randomIO
-    -- TODO add the room to the DB
-    liftIO $ restoreRoom roomId emptyRoom roomsMv
+    let room = emptyRoom
+    -- Add the room to the DB
+    liftIO $ withResource (rootEnv ^. rootEnvPGPool) $ \conn ->
+      WWPG.addRoom conn roomId room
+    -- Add the room the the mvar
+    liftIO $ restoreRoom roomId room rootEnv
+
+    -- Send response
     Snap.modifyResponse $
         Snap.setResponseCode 200 . Snap.setContentType "text/json"
     Snap.writeLBS (Aeson.encode roomId)
 
-serverWW :: Rooms -> WW () -> WS.ServerApp
-serverWW roomsMv m pending = do
+serverWW :: RootEnv -> WW () -> WS.ServerApp
+serverWW rootEnv m pending = do
     countRef <- newIORef (0 :: Int64)
     go countRef
   where
@@ -157,8 +177,8 @@ serverWW roomsMv m pending = do
             handleReq tagConn isReg req
 
     handleReq tagConn isReg req = do
-        let roomId = req ^. reqRoom
-        rooms <- readMVar roomsMv
+        let roomId = req ^. reqRoomId
+        rooms <- readMVar $ rootEnv ^. rootEnvRooms
         case rooms ^. at roomId of
           Nothing -> do
             sendErr tagConn $ RoomNotPresent roomId
@@ -172,34 +192,37 @@ serverWW roomsMv m pending = do
     processEnv :: TaggedConn -> Bool -> Req -> StateT RoomEnv IO ()
     processEnv tagConn isReg req = do
         -- Add the current connection to the list, if not registered.
-        unless isReg $ reConnections %= (tagConn :)
+        unless isReg $ roomEnvConnections %= (tagConn :)
         -- Run the monadic action.
-        room <- use reRoom
+        room <- use roomEnvRoom
         result <- liftIO $ runWW req room m
         case result of
           -- If the monadic action went wrong, just send a response with
           -- the error, without writing anything or modifying the state.
           Left err -> do
             sendJSON tagConn $ RespError err
+
           -- Otherwise...
           Right ((), wwst) -> do
-            let room' = wwst ^. wwRoom
-            reRoom .= room'
             -- Store the patches in the database.
-            forM_ (wwst ^. wwPatches) $ \patch -> do
-              return ()
+            liftIO $ withResource (rootEnv ^. rootEnvPGPool) $ \pgConn ->
+              WWPG.patchRoom pgConn (req ^. reqRoomId) (toList $ wwst ^. wwPatches)
+
             -- Send the messages.
             forM_ (wwst ^. wwResps) $ \(recipient, resp) ->
               case recipient of
                 This -> sendJSON tagConn resp
                 All  -> do
-                  conns <- use reConnections
+                  conns <- use roomEnvConnections
                   conns' <- flip filterM conns $ \conn -> do
                     mbIOEx <- liftIO $ try $ sendJSON conn resp
                     return $ case mbIOEx of
                       Left (_ :: WS.ConnectionException) -> False
                       Right ()                           -> True
-                  reConnections .= conns'
+                  roomEnvConnections .= conns'
+
+            -- Store the new room in the state.
+            roomEnvRoom .= wwst ^. wwRoom
 
     sendErr tagConn = sendJSON tagConn . RespError
 

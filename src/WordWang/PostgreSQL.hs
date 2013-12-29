@@ -1,3 +1,4 @@
+-- TODO better exceptions instead of 'error'.
 module WordWang.PostgreSQL
     ( Revision
     , addRoom
@@ -5,7 +6,7 @@ module WordWang.PostgreSQL
     , loadRooms
     ) where
 
-import           Control.Monad (void, forM)
+import           Control.Monad (void, forM, forM_)
 import           Data.Functor ((<$>))
 import           Data.Int (Int64)
 
@@ -26,8 +27,8 @@ addRoom conn roomId room =
       [sql| INSERT INTO rooms VALUES (?, ?, 0) |]
       (roomId, JSONed room)
 
-patchRoom :: PG.Connection -> RoomId -> Patch -> IO (Maybe Revision)
-patchRoom conn roomId patch = withRetryingTransaction conn $ do
+patchRoom :: PG.Connection -> RoomId -> [Patch] -> IO ()
+patchRoom conn roomId patches = withRetryingTransaction conn $ do
     revisions <- map PG.fromOnly <$> PG.query conn
       [sql| SELECT revision
               FROM patches
@@ -35,17 +36,32 @@ patchRoom conn roomId patch = withRetryingTransaction conn $ do
               ORDER BY revision DESC
               LIMIT 1
       |] (PG.Only roomId)
-    case revisions of
+    revision :: Revision <- case revisions of
       [] -> do
-        return Nothing
+        roomsRevisions <- map PG.fromOnly <$> PG.query conn
+          [sql| SELECT revision
+                  FROM rooms
+                  WHERE roomId = ?
+                  LIMIT 1
+          |] (PG.Only roomId)
+        case roomsRevisions of
+          [] ->
+            patchRoomError $ "no revision found for room " ++ show roomId
+          [revision] ->
+            return revision
+          (_ : _) ->
+            patchRoomError $ "rooms query returned multiple rows"
       [revision] -> do
-        let revision' = revision + 1
-        void $ PG.execute conn
-          [sql| INSERT INTO patches VALUES (?, ?, ?) |]
-          (roomId, revision', JSONed patch)
-        return $ Just revision'
+        return revision
       (_ : _) -> do
-        error "WordWang.PostgreSQL.patchRoom: the impossible happened"
+        patchRoomError $ "patches query returned multiple rows"
+
+    forM_ (zip [revision+1..] patches) $ \(patchRevision, patch) ->
+      PG.execute conn
+        [sql| INSERT INTO patches VALUES (?, ?, ?) |]
+        (roomId, patchRevision, JSONed patch)
+  where
+    patchRoomError s = error $ "WordWang.PostgreSQL.patchRoom: " ++ s
 
 loadRooms :: PG.Connection -> IO [(RoomId, Room)]
 loadRooms conn = withRetryingTransaction conn $ do
