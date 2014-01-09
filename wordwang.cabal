@@ -13,12 +13,15 @@ executable wordwang-server
   hs-source-dirs:    src
   main-is:           wordwang-server.hs
 
-  other-modules:     WordWang.Utils
+  other-modules:     WordWang.Config
+                   , WordWang.Log
+                   , WordWang.Utils
                    , WordWang.Messages
                    , WordWang.Objects
                    , WordWang.Bwd
                    , WordWang.Monad
                    , WordWang.PostgreSQL
+                   , WordWang.Countdown
                    , WordWang
 
   build-depends:     base                 >= 4 && < 5
@@ -54,6 +57,7 @@ executable wordwang-server
                    , ExistentialQuantification
                    , FlexibleInstances
                    , LambdaCase
+                   , MultiParamTypeClasses
                    , OverloadedStrings
                    , PatternGuards
                    , QuasiQuotes

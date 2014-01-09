@@ -20,7 +20,7 @@ import           Paths_wordwang (getDataDir)
 
 run :: RootEnv -> FilePath -> Snap ()
 run rootEnv dataDir =
-        Snap.path "ws" (WS.runWebSocketsSnap (serverWW rootEnv wordwang))
+        Snap.path "ws" (WS.runWebSocketsSnap (webSocketWW rootEnv wordwang))
     <|> Snap.path "create" (addRoom rootEnv)
     <|> Snap.serveDirectory (dataDir </> "www")
 

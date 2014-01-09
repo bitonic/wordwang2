@@ -22,40 +22,38 @@ module WordWang.Utils
     , supervise
     ) where
 
-import           Control.Concurrent (ThreadId, forkIO, throwTo, myThreadId)
-import           Control.Exception (mask, catches, SomeException, Handler(Handler), AsyncException, throwIO)
-import           Control.Monad (when)
-import           Data.Char (isUpper, toLower)
-import           Data.Int (Int64)
-import           Data.List (stripPrefix)
-import           Data.Monoid ((<>))
-import           Data.Typeable (Typeable)
-
-import           Control.Monad.Trans (MonadIO(..))
-import qualified Data.ByteString.Lazy as BL
-import           Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
-import           Data.Hashable (Hashable)
-import           Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Builder as TL
-import qualified Data.Text.Lazy.Encoding as TL
-
-import           Control.Lens ((^.), makeLenses)
-import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.Types as Aeson
-import           Data.String.Combinators (quotes)
-import           Data.Text.Buildable (Buildable(..))
-import           Data.Text.Format (Format, Only(..), Shown(..), format)
-import           Data.Text.Format.Params (Params)
-import           Data.UUID (UUID)
-import qualified Data.UUID as UUID
-import qualified Database.PostgreSQL.Simple.FromField as PG
-import qualified Database.PostgreSQL.Simple.ToField as PG
-import qualified Database.PostgreSQL.Simple.TypeInfo.Macro as PGTI
+import           Control.Concurrent                    (ThreadId, forkIO, throwTo, myThreadId)
+import           Control.Exception                     (mask, catches, SomeException, Handler(Handler), AsyncException, throwIO)
+import           Control.Lens                          ((^.), makeLenses)
+import           Control.Monad                         (when)
+import           Control.Monad.Trans                   (MonadIO(..))
+import qualified Data.Aeson                            as Aeson
+import qualified Data.Aeson.Types                      as Aeson
+import qualified Data.ByteString.Lazy                  as BL
+import           Data.Char                             (isUpper, toLower)
+import           Data.HashMap.Strict                   (HashMap)
+import qualified Data.HashMap.Strict                   as HashMap
+import           Data.Hashable                         (Hashable)
+import           Data.Int                              (Int64)
+import           Data.List                             (stripPrefix)
+import           Data.Monoid                           ((<>))
+import           Data.String.Combinators               (quotes)
+import           Data.Text                             (Text)
+import qualified Data.Text                             as T
+import           Data.Text.Buildable                   (Buildable(..))
+import           Data.Text.Format                      (Format, Only(..), Shown(..), format)
+import           Data.Text.Format.Params               (Params)
+import qualified Data.Text.Lazy                        as TL
+import qualified Data.Text.Lazy.Builder                as TL
+import qualified Data.Text.Lazy.Encoding               as TL
+import           Data.Typeable                         (Typeable)
+import           Data.UUID                             (UUID)
+import qualified Data.UUID                             as UUID
+import qualified Database.PostgreSQL.Simple.FromField  as PG
+import qualified Database.PostgreSQL.Simple.ToField    as PG
+import qualified Database.PostgreSQL.Simple.TypeInfo.Macro  as PGTI
 import qualified Database.PostgreSQL.Simple.TypeInfo.Static as PGTI
-import qualified Network.WebSockets as WS
+import qualified Network.WebSockets                    as WS
 
 import           WordWang.Config
 
@@ -133,7 +131,7 @@ data TaggedConn = TaggedConn
 
 makeLenses ''TaggedConn
 
-sendJSON :: (Aeson.ToJSON a, Show a, MonadIO m) => TaggedConn -> a -> m ()
+sendJSON :: (Aeson.ToJSON a, MonadIO m) => TaggedConn -> a -> m ()
 sendJSON taggedConn req = liftIO $ do
     debugMsg "[{}] sending response `{}'" (taggedConn ^. tcTag, JSONed req)
     WS.sendTextData (taggedConn ^. tcConn) (Aeson.encode req)

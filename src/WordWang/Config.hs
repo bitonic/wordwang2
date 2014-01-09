@@ -1,3 +1,4 @@
+{-# LANGUAGE Trustworthy #-}
 module WordWang.Config
     ( LogLevel(..)
     , Config(..)
@@ -11,17 +12,15 @@ module WordWang.Config
     , getConfig
     ) where
 
-import           Control.Concurrent (MVar, newEmptyMVar, readMVar, isEmptyMVar, tryPutMVar)
-import           Control.Monad (unless)
-import           System.IO (stderr)
-import           System.IO.Unsafe (unsafePerformIO)
-
-import           Control.Monad.Trans (MonadIO(..))
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.IO as TL
-
-import           Control.Lens (makeLenses)
-import qualified Database.PostgreSQL.Simple as PG
+import           Control.Concurrent                    (MVar, newEmptyMVar, readMVar, isEmptyMVar, tryPutMVar)
+import           Control.Lens                          (makeLenses)
+import           Control.Monad                         (unless)
+import           Control.Monad.Trans                   (MonadIO(..))
+import qualified Data.Text.Lazy                        as TL
+import qualified Data.Text.Lazy.IO                     as TL
+import qualified Database.PostgreSQL.Simple            as PG
+import           System.IO                             (stderr)
+import           System.IO.Unsafe                      (unsafePerformIO)
 
 data LogLevel = DEBUG | INFO | ERROR
     deriving (Show, Eq, Ord)

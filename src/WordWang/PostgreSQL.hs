@@ -6,14 +6,12 @@ module WordWang.PostgreSQL
     , loadRooms
     ) where
 
-import           Control.Monad (void, forM, forM_)
-import           Data.Functor ((<$>))
-import           Data.Int (Int64)
-
-import           Control.Monad.Trans.Maybe (MaybeT(runMaybeT))
-
-import qualified Database.PostgreSQL.Simple as PG
-import           Database.PostgreSQL.Simple.SqlQQ (sql)
+import           Control.Monad                         (void, forM, forM_)
+import           Control.Monad.Trans.Maybe             (MaybeT(runMaybeT))
+import           Data.Functor                          ((<$>))
+import           Data.Int                              (Int64)
+import qualified Database.PostgreSQL.Simple            as PG
+import           Database.PostgreSQL.Simple.SqlQQ      (sql)
 
 import           WordWang.Utils
 import           WordWang.Objects

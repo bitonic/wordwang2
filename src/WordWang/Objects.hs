@@ -33,31 +33,29 @@ module WordWang.Objects
     , applyPatches
     ) where
 
-import           Control.Applicative ((<|>))
-import           Control.Arrow (first)
-import           Data.Functor ((<$>))
-import           Data.Traversable (traverse)
-import           Data.Typeable (Typeable)
-
-import           Control.Monad.Trans (lift)
-import           Control.Monad.Trans.Maybe (MaybeT(MaybeT))
-import           Data.ByteString (ByteString)
-import           Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HashMap
-import           Data.HashSet (HashSet)
-import qualified Data.HashSet as HashSet
-import           Data.Hashable (Hashable(hashWithSalt))
-import           Data.Text (Text)
-import qualified Data.Text.Encoding as T
-import           System.Random (Random(..))
-
-import           Control.Lens (makeLenses, at, (.~), (?~), (%~), (^.), (&))
-import           Data.Aeson ((.=))
-import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.TH as Aeson
-import qualified Data.UUID as UUID
-import qualified Database.PostgreSQL.Simple.FromField as PG
-import qualified Database.PostgreSQL.Simple.ToField as PG
+import           Control.Applicative                   ((<|>))
+import           Control.Arrow                         (first)
+import           Control.Lens                          (makeLenses, at, (.~), (?~), (%~), (^.), (&))
+import           Control.Monad.Trans                   (lift)
+import           Control.Monad.Trans.Maybe             (MaybeT(MaybeT))
+import           Data.Aeson                            ((.=))
+import qualified Data.Aeson                            as Aeson
+import qualified Data.Aeson.TH                         as Aeson
+import           Data.ByteString                       (ByteString)
+import           Data.Functor                          ((<$>))
+import           Data.HashMap.Strict                   (HashMap)
+import qualified Data.HashMap.Strict                   as HashMap
+import           Data.HashSet                          (HashSet)
+import qualified Data.HashSet                          as HashSet
+import           Data.Hashable                         (Hashable(hashWithSalt))
+import           Data.Text                             (Text)
+import qualified Data.Text.Encoding                    as T
+import           Data.Traversable                      (traverse)
+import           Data.Typeable                         (Typeable)
+import qualified Data.UUID                             as UUID
+import qualified Database.PostgreSQL.Simple.FromField  as PG
+import qualified Database.PostgreSQL.Simple.ToField    as PG
+import           System.Random                         (Random(..))
 
 import           WordWang.Utils
 

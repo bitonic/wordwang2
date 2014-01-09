@@ -1,16 +1,15 @@
-module WordWang.Incremental
-    ( Incremental
+module WordWang.Countdown
+    ( Countdown
     , start
     , bump
     , wait
     , stop
     ) where
 
-import           Control.Concurrent (threadDelay, killThread, ThreadId)
-import           Control.Concurrent.MVar (MVar, newMVar, newEmptyMVar, modifyMVar_, modifyMVar, readMVar, putMVar, tryPutMVar)
-import           Control.Monad (void)
-
-import           Data.List.NonEmpty (NonEmpty(..))
+import           Control.Concurrent                    (threadDelay, killThread, ThreadId)
+import           Control.Concurrent.MVar               (MVar, newMVar, newEmptyMVar, modifyMVar_, modifyMVar, readMVar, putMVar, tryPutMVar)
+import           Control.Monad                         (void)
+import           Data.List.NonEmpty                    (NonEmpty(..))
 
 import           WordWang.Utils
 
@@ -20,23 +19,23 @@ data ShouldContinue
     | No !Int
       -- ^ The worker should signal that we're done.
 
-data Incremental = Incremental
+data Countdown = Countdown
     { incrContinue :: MVar ShouldContinue
     , incrDone     :: MVar ()
     , incrNext     :: Int -> Maybe Int
     , incrTid      :: ThreadId
     }
 
-start :: Int -> (Int -> Maybe Int) -> IO Incremental
+start :: Int -> (Int -> Maybe Int) -> IO Countdown
 start x f = do
     shouldContinueMV <- newMVar $ Yes (x :| [])
     doneMV <- newEmptyMVar
     tid <- supervise $ worker shouldContinueMV doneMV
-    return Incremental{ incrContinue = shouldContinueMV
-                      , incrDone     = doneMV
-                      , incrNext     = f
-                      , incrTid      = tid
-                      }
+    return Countdown{ incrContinue = shouldContinueMV
+                    , incrDone     = doneMV
+                    , incrNext     = f
+                    , incrTid      = tid
+                    }
   where
     worker shouldContinueMV doneMV = do
         mbWaitingTime <- modifyMVar shouldContinueMV $ \shouldContinue ->
@@ -50,17 +49,17 @@ start x f = do
             threadDelay waitingTime
             worker shouldContinueMV doneMV
 
-bump :: Incremental -> IO ()
-bump Incremental{incrContinue = cont, incrNext = f} =
+bump :: Countdown -> IO ()
+bump Countdown{incrContinue = cont, incrNext = f} =
     modifyMVar_ cont $ \shouldContinue -> return $
       case shouldContinue of
         Yes (t :| ts) | Just t' <- f t -> Yes (t' :| t : ts)
         _                              -> shouldContinue
 
-wait :: Incremental -> IO ()
-wait Incremental{incrDone = done} = readMVar done
+wait :: Countdown -> IO ()
+wait Countdown{incrDone = done} = readMVar done
 
-stop :: Incremental -> IO ()
-stop Incremental{incrDone = done, incrTid = tid} = do
+stop :: Countdown -> IO ()
+stop Countdown{incrDone = done, incrTid = tid} = do
     void $ tryPutMVar done ()
     void $ killThread tid

@@ -12,12 +12,11 @@ module WordWang.Messages
     , RespError(..)
     ) where
 
-import           Data.Typeable (Typeable)
-
-import           Control.Lens (makeLenses)
-import           Data.Aeson ((.=))
-import qualified Data.Aeson as Aeson
-import qualified Data.Aeson.TH as Aeson
+import           Data.Typeable                         (Typeable)
+import           Control.Lens                          (makeLenses)
+import           Data.Aeson                            ((.=))
+import qualified Data.Aeson                            as Aeson
+import qualified Data.Aeson.TH                         as Aeson
 
 import           WordWang.Objects
 import           WordWang.Utils
