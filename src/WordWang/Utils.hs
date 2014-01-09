@@ -25,7 +25,6 @@ module WordWang.Utils
 import           Control.Concurrent                    (ThreadId, forkIO, throwTo, myThreadId)
 import           Control.Exception                     (mask, catches, SomeException, Handler(Handler), AsyncException, throwIO)
 import           Control.Lens                          ((^.), makeLenses)
-import           Control.Monad                         (when)
 import           Control.Monad.Trans                   (MonadIO(..))
 import qualified Data.Aeson                            as Aeson
 import qualified Data.Aeson.Types                      as Aeson
@@ -36,14 +35,11 @@ import qualified Data.HashMap.Strict                   as HashMap
 import           Data.Hashable                         (Hashable)
 import           Data.Int                              (Int64)
 import           Data.List                             (stripPrefix)
-import           Data.Monoid                           ((<>))
 import           Data.String.Combinators               (quotes)
 import           Data.Text                             (Text)
 import qualified Data.Text                             as T
 import           Data.Text.Buildable                   (Buildable(..))
-import           Data.Text.Format                      (Format, Only(..), Shown(..), format)
-import           Data.Text.Format.Params               (Params)
-import qualified Data.Text.Lazy                        as TL
+import           Data.Text.Format                      (Only(..), Shown(..))
 import qualified Data.Text.Lazy.Builder                as TL
 import qualified Data.Text.Lazy.Encoding               as TL
 import           Data.Typeable                         (Typeable)
@@ -55,6 +51,7 @@ import qualified Database.PostgreSQL.Simple.TypeInfo.Macro  as PGTI
 import qualified Database.PostgreSQL.Simple.TypeInfo.Static as PGTI
 import qualified Network.WebSockets                    as WS
 
+import           WordWang.Log
 import           WordWang.Config
 
 delPrefix :: String -> String -> String
@@ -135,23 +132,6 @@ sendJSON :: (Aeson.ToJSON a, MonadIO m) => TaggedConn -> a -> m ()
 sendJSON taggedConn req = liftIO $ do
     debugMsg "[{}] sending response `{}'" (taggedConn ^. tcTag, JSONed req)
     WS.sendTextData (taggedConn ^. tcConn) (Aeson.encode req)
-
-logMsg :: (MonadIO m, Params ps) => LogLevel -> Format -> ps -> m ()
-logMsg pri fmt ps = do
-    conf <- getConfig
-    let minPri = conf ^. confLogLevel
-        logf   = conf ^. confLogFunction
-    when (pri >= minPri) $ liftIO $ logf $
-      ("[" <> TL.pack (show pri) <> "] ") <> format fmt ps
-
-debugMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
-debugMsg = logMsg DEBUG
-
-infoMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
-infoMsg = logMsg INFO
-
-errorMsg :: (MonadIO m, Params ps) => Format -> ps -> m ()
-errorMsg = logMsg ERROR
 
 instance PG.ToField UUID where
     toField = PG.Escape . UUID.toASCIIBytes

@@ -12,7 +12,7 @@ module WordWang.Config
     , getConfig
     ) where
 
-import           Control.Concurrent                    (MVar, newEmptyMVar, readMVar, isEmptyMVar, tryPutMVar)
+import           Control.Concurrent.MVar               (MVar, newEmptyMVar, readMVar, isEmptyMVar, tryPutMVar)
 import           Control.Lens                          (makeLenses)
 import           Control.Monad                         (unless)
 import           Control.Monad.Trans                   (MonadIO(..))
