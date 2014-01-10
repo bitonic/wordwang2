@@ -1,8 +1,8 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module WordWang.Monad
     ( -- * Class
-      RespRecipient(..)
-    , MonadWW(..)
+      RespRecipient(All, This)
+    , MonadWW(patchRoom, respond, terminate, viewRoom)
 
       -- * State
     , WWState

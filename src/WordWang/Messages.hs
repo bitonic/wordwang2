@@ -1,5 +1,6 @@
 module WordWang.Messages
-    ( Req(..)
+    ( -- * Request
+      Req(..)
     , reqRoomId
     , reqAuth
     , reqBody
@@ -8,6 +9,7 @@ module WordWang.Messages
     , reqAuthSecret
     , ReqBody(..)
 
+      -- * Response
     , Resp(..)
     , RespError(..)
     ) where

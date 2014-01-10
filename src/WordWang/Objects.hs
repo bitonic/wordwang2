@@ -1,32 +1,37 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module WordWang.Objects
-    ( Text
+    ( -- * Objects
+      -- ** 'Id'
+      Id
 
-    , Id
-
+      -- ** 'User'
     , UserId
     , UserSecret
     , User(..)
     , uSecret
 
+      -- ** 'Candidate'
     , CandidateId
     , Candidate(..)
     , cBlock
     , cVotes
     , candidate
 
+      -- ** 'Story'
     , Block
     , Story(..)
     , sCandidates
     , sBlocks
     , emptyStory
 
+      -- ** 'Room'
     , RoomId
     , Room(..)
     , rStory
     , rUsers
     , emptyRoom
 
+      -- * Patching
     , PatchStory(..)
     , Patch(..)
     , applyPatch

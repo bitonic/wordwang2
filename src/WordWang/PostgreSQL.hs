@@ -1,7 +1,6 @@
 -- TODO better exceptions instead of 'error'.
 module WordWang.PostgreSQL
-    ( Revision
-    , addRoom
+    ( addRoom
     , patchRoom
     , loadRooms
     ) where
@@ -26,14 +25,17 @@ addRoom conn roomId room =
 
 patchRoom :: PG.Connection -> RoomId -> [Patch] -> IO ()
 patchRoom conn roomId patches = do
-    revisions <- map PG.fromOnly <$> PG.query conn
+    -- Get the latest revision.
+    revisions :: [Revision] <- map PG.fromOnly <$> PG.query conn
       [sql| SELECT revision
               FROM patches
               WHERE room_id = ?
               ORDER BY revision DESC
               LIMIT 1
       |] (PG.Only roomId)
-    revision :: Revision <- case revisions of
+    revision <- case revisions of
+      -- If no revisions are present, get it from the room table
+      -- directly.
       [] -> do
         roomsRevisions <- map PG.fromOnly <$> PG.query conn
           [sql| SELECT revision
@@ -53,6 +55,7 @@ patchRoom conn roomId patches = do
       (_ : _) -> do
         patchRoomError $ "patches query returned multiple rows"
 
+    -- Insert all the patches on top of the latest revision.
     forM_ (zip [revision+1..] patches) $ \(patchRevision, patch) ->
       PG.execute conn
         [sql| INSERT INTO patches VALUES (?, ?, ?) |]
@@ -66,16 +69,17 @@ loadRooms conn = do
       [sql| SELECT room_id, room, revision
               FROM rooms
       |]
-    forM revisionedRooms $ \(roomId, (unJSONed -> room), revision) -> do
-      patches <- map (unJSONed . PG.fromOnly) <$> PG.query conn
-        [sql| SELECT patch
-                FROM patches
-                WHERE (room_id = ?) AND (revision > ?)
-                ORDER BY revision ASC
-        |] (roomId :: RoomId, revision :: Revision)
-      case runMaybeT (applyPatches patches room) of
-        Left  err          -> error $ "WordWang.PostgreSQL.loadRooms: " ++ err
-        Right Nothing      -> return (roomId, room)
-        Right (Just room') -> return (roomId, room')
+    forM revisionedRooms $
+      \(roomId, JSONed room, revision :: Revision) -> do
+         patches <- map (unJSONed . PG.fromOnly) <$> PG.query conn
+           [sql| SELECT patch
+                   FROM patches
+                   WHERE (room_id = ?) AND (revision > ?)
+                   ORDER BY revision ASC
+           |] (roomId, revision)
+         case runMaybeT (applyPatches patches room) of
+           Left  err          -> error $ "WordWang.PostgreSQL.loadRooms: " ++ err
+           Right Nothing      -> return (roomId, room)
+           Right (Just room') -> return (roomId, room')
 
 ------------------------------------------------------------------------

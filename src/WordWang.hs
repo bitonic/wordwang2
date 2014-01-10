@@ -1,23 +1,31 @@
 module WordWang
-    ( module WordWang.Messages
-    , module WordWang.Monad
-    , module WordWang.Objects
-    , module WordWang.Config
-
-    , RoomEnv(..)
+    ( -- * Room environment
+      RoomEnv(..)
     , roomEnvRoom
     , roomEnvConnections
     , roomEnvPGPool
     , roomEnvCountdown
     , roomEnvCloser
+
+      -- * Root environment
     , RootEnv(..)
     , rootEnvRooms
     , rootEnvPGPool
-    , restoreRoom
-    , loadAndRestoreRooms
-    , addRoom
-    , webSocketWW
+
+      -- * Logic
     , wordwang
+
+      -- * Snap\/WS\/IO actions
+    , webSocketWW
+    , restoreRoom
+    , addRoom
+    , loadAndRestoreRooms
+
+      -- * Re-exports
+    , module WordWang.Config
+    , module WordWang.Objects
+    , module WordWang.Messages
+    , module WordWang.Monad
     ) where
 
 import           Control.Concurrent                   (ThreadId, threadDelay)
@@ -75,6 +83,7 @@ sendJSON taggedConn req = liftIO $ do
     WS.sendTextData (taggedConn ^. tcConn) (Aeson.encode req)
 
 ------------------------------------------------------------------------
+-- Room environment
 
 data RoomEnv = RoomEnv
     { _roomEnvRoom        :: !Room
@@ -92,6 +101,8 @@ data RootEnv = RootEnv
 makeLenses ''RoomEnv
 makeLenses ''RootEnv
 
+------------------------------------------------------------------------
+-- WW actions
 
 internalError :: MonadWW m => String -> m a
 internalError = terminate . InternalError
@@ -118,6 +129,45 @@ authenticated = do
           _ ->
             terminate InvalidCredentials
 
+closeVoting :: MonadWW m => m ()
+closeVoting = do
+    story <- viewRoom rStory
+    case HashMap.elems (story ^. sCandidates) of
+      [] -> do
+        -- TODO should we return an error here?
+        return ()
+      cands@(_:_) -> do
+        let cand  = maximumBy (comparing (HashSet.size . _cVotes)) cands
+            block = cand ^. cBlock
+        patchStoryAndRespond $ PSVotingClosed block
+
+-- | Main logic.
+wordwang :: ReaderT Req WW ()
+wordwang = do
+    body <- view reqBody
+    case body of
+      ReqCandidate block -> do
+        userId <- authenticated
+        patchStoryAndRespond $ PSCandidate userId $ candidate userId block
+      -- TODO make it so that only "administrators" can do this.
+      ReqCloseVoting -> do
+        error "WordWang.wordwang: ReqCloseVoting not supported"
+      ReqVote candidateId -> do
+        userId <- authenticated
+        patchStoryAndRespond $ PSVote candidateId userId
+      ReqStory -> do
+        story <- viewRoom rStory
+        respond This $ RespStory story
+      ReqJoin -> do
+        userId <- liftIO randomIO
+        user   <- User <$> makeSecret
+        -- TODO should we record an error if the patch fails?
+        wasPatched <- patchRoom $ PNewUser userId user
+        when wasPatched $ respond This $ RespJoin userId user
+
+------------------------------------------------------------------------
+-- Room setup
+
 loadAndRestoreRooms :: RootEnv -> IO ()
 loadAndRestoreRooms rootEnv =
     mapM_ (\(roomId, room) -> restoreRoom roomId room rootEnv) =<<
@@ -129,7 +179,17 @@ restoreRoom roomId room rootEnv =
       roomEnvMv <- newEmptyMVar
 
       -- TODO kill this when closing the room.
-      closer <- supervise $ forever $ do
+      closer <- supervise $ voteCloser roomEnvMv
+
+      putMVar roomEnvMv RoomEnv{ _roomEnvRoom        = room
+                               , _roomEnvConnections = []
+                               , _roomEnvPGPool      = rootEnv ^. rootEnvPGPool
+                               , _roomEnvCountdown   = Nothing
+                               , _roomEnvCloser      = closer
+                               }
+      return $ HashMap.insert roomId roomEnvMv rooms
+  where
+    voteCloser roomEnvMv = forever $ do
         -- Wait for a tenth of a second.
         threadDelay 100000
         mbCountDown <- _roomEnvCountdown <$> readMVar roomEnvMv
@@ -150,14 +210,6 @@ restoreRoom roomId room rootEnv =
               void $ executeWW rootEnv sendThisResp roomId $ closeVoting
               roomEnvCountdown .= Nothing
 
-      putMVar roomEnvMv RoomEnv{ _roomEnvRoom        = room
-                               , _roomEnvConnections = []
-                               , _roomEnvPGPool      = rootEnv ^. rootEnvPGPool
-                               , _roomEnvCountdown   = Nothing
-                               , _roomEnvCloser      = closer
-                               }
-      return $ HashMap.insert roomId roomEnvMv rooms
-
 addRoom :: RootEnv -> Snap ()
 addRoom rootEnv = do
     roomId <- liftIO randomIO
@@ -173,7 +225,14 @@ addRoom rootEnv = do
         Snap.setResponseCode 200 . Snap.setContentType "text/json"
     Snap.writeLBS $ Aeson.encode roomId
 
-executeWW :: RootEnv -> (Resp -> IO ()) -> RoomId -> WW ()
+------------------------------------------------------------------------
+-- Executing WW actions.
+
+executeWW :: RootEnv
+          -> (Resp -> IO ())
+          -- ^ Actions that sends a response to the "current" client.
+          -> RoomId
+          -> WW ()
           -> StateT RoomEnv IO Bool
 executeWW rootEnv sendThisResp roomId m = do
     -- Run the monadic action.
@@ -246,8 +305,6 @@ webSocketWW rootEnv m pending = do
             sendErr tagConn $ RoomNotPresent roomId
             decodeReq tagConn isReg
 
-          -- TODO right now we lock everything with the state.  We
-          -- should really do this asynchronously.
           Just envMv -> do
             modifyMVar_ envMv $ \env -> flip execStateT env $ do
               -- Add the current connection to the list, if not registered.
@@ -258,13 +315,14 @@ webSocketWW rootEnv m pending = do
                 executeWW rootEnv (sendJSON tagConn) roomId $ runReaderT m req
 
               -- Bump/start countdown if necessary
-              mbCountDown <- use roomEnvCountdown
-              when hasStoryChanged $ case mbCountDown of
-                Nothing -> do
-                  countdown <- liftIO $ WWCD.start cdStart cdHalve
-                  roomEnvCountdown .= Just countdown
-                Just countdown -> do
-                  liftIO $ WWCD.bump countdown
+              when hasStoryChanged $ do
+                mbCountDown <- use roomEnvCountdown
+                case mbCountDown of
+                  Nothing -> do
+                    countdown <- liftIO $ WWCD.start cdStart cdHalve
+                    roomEnvCountdown .= Just countdown
+                  Just countdown -> do
+                    liftIO $ WWCD.bump countdown
 
             -- Loop
             decodeReq tagConn True
@@ -275,38 +333,3 @@ webSocketWW rootEnv m pending = do
     cdHalve n = if n < 100000 then Nothing else Just (n `div` 2)
 
     sendErr tagConn = sendJSON tagConn . RespError
-
-wordwang :: ReaderT Req WW ()
-wordwang = do
-    body <- view reqBody
-    case body of
-      ReqCandidate block -> do
-        userId <- authenticated
-        patchStoryAndRespond $ PSCandidate userId $ candidate userId block
-      -- TODO make it so that only "administrators" can do this.
-      ReqCloseVoting -> do
-        error "WordWang.wordwang: ReqCloseVoting not supported"
-      ReqVote candidateId -> do
-        userId <- authenticated
-        patchStoryAndRespond $ PSVote candidateId userId
-      ReqStory -> do
-        story <- viewRoom rStory
-        respond This $ RespStory story
-      ReqJoin -> do
-        userId <- liftIO randomIO
-        user   <- User <$> makeSecret
-        -- TODO should we record an error if the patch fails?
-        wasPatched <- patchRoom $ PNewUser userId user
-        when wasPatched $ respond This $ RespJoin userId user
-
-closeVoting :: MonadWW m => m ()
-closeVoting = do
-    story <- viewRoom rStory
-    case HashMap.elems (story ^. sCandidates) of
-      [] -> do
-        -- TODO should we return an error here?
-        return ()
-      cands@(_:_) -> do
-        let cand  = maximumBy (comparing (HashSet.size . _cVotes)) cands
-            block = cand ^. cBlock
-        patchStoryAndRespond $ PSVotingClosed block
