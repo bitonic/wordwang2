@@ -48,11 +48,30 @@ import           System.Random                        (randomIO)
 
 import           WordWang.Countdown                   (Countdown)
 import qualified WordWang.Countdown                   as WWCD
+import           WordWang.JSON
+import           WordWang.Log
 import           WordWang.Messages
 import           WordWang.Monad
 import           WordWang.Objects
 import qualified WordWang.PostgreSQL                  as WWPG
 import           WordWang.Utils
+
+------------------------------------------------------------------------
+-- Tagged connections
+
+data TaggedConn = TaggedConn
+    { _tcConn :: WS.Connection
+    , _tcTag  :: Int64
+    }
+
+makeLenses ''TaggedConn
+
+sendJSON :: (Aeson.ToJSON a, MonadIO m) => TaggedConn -> a -> m ()
+sendJSON taggedConn req = liftIO $ do
+    debugMsg "[{}] sending response `{}'" (taggedConn ^. tcTag, JSONed req)
+    WS.sendTextData (taggedConn ^. tcConn) (Aeson.encode req)
+
+------------------------------------------------------------------------
 
 data RoomEnv = RoomEnv
     { _roomEnvRoom        :: !Room

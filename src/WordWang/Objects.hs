@@ -34,7 +34,6 @@ module WordWang.Objects
     ) where
 
 import           Control.Applicative                   ((<|>))
-import           Control.Arrow                         (first)
 import           Control.Lens                          (makeLenses, at, (.~), (?~), (%~), (^.), (&))
 import           Control.Monad.Trans                   (lift)
 import           Control.Monad.Trans.Maybe             (MaybeT(MaybeT))
@@ -47,7 +46,7 @@ import           Data.HashMap.Strict                   (HashMap)
 import qualified Data.HashMap.Strict                   as HashMap
 import           Data.HashSet                          (HashSet)
 import qualified Data.HashSet                          as HashSet
-import           Data.Hashable                         (Hashable(hashWithSalt))
+import           Data.Hashable                         (Hashable)
 import           Data.Text                             (Text)
 import qualified Data.Text.Encoding                    as T
 import           Data.Traversable                      (traverse)
@@ -57,20 +56,13 @@ import qualified Database.PostgreSQL.Simple.FromField  as PG
 import qualified Database.PostgreSQL.Simple.ToField    as PG
 import           System.Random                         (Random(..))
 
-import           WordWang.Utils
+import           WordWang.JSON
 
 newtype Id = Id {unId :: UUID.UUID}
-    deriving (Eq, Typeable, PG.ToField, PG.FromField)
+    deriving (Eq, Typeable, PG.ToField, PG.FromField, Hashable, Random)
 
 instance Show Id where
     showsPrec n = showsPrec n . unId
-
-instance Hashable Id where
-    hashWithSalt salt = hashWithSalt salt . UUID.toASCIIBytes . unId
-
-instance Random Id where
-    randomR (Id lo, Id hi) g = first Id (randomR (lo, hi) g)
-    random g = first Id (random g)
 
 type UserId = Id
 type UserSecret = ByteString
@@ -180,6 +172,9 @@ instance Aeson.FromJSON Id where
 instance Aeson.ToJSON v => Aeson.ToJSON (HashMap Id v) where
     toJSON = Aeson.Object
            . mapKeyVal (T.decodeUtf8 . UUID.toASCIIBytes . unId) Aeson.toJSON
+      where
+        mapKeyVal fk kv =
+          HashMap.foldrWithKey (\k v -> HashMap.insert (fk k) (kv v)) HashMap.empty
 
 instance Aeson.FromJSON v => Aeson.FromJSON (HashMap Id v) where
     parseJSON json = do

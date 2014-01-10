@@ -13,7 +13,7 @@ import           Data.Int                              (Int64)
 import qualified Database.PostgreSQL.Simple            as PG
 import           Database.PostgreSQL.Simple.SqlQQ      (sql)
 
-import           WordWang.Utils
+import           WordWang.JSON
 import           WordWang.Objects
 
 type Revision = Int64
@@ -77,3 +77,5 @@ loadRooms conn = do
         Left  err          -> error $ "WordWang.PostgreSQL.loadRooms: " ++ err
         Right Nothing      -> return (roomId, room)
         Right (Just room') -> return (roomId, room')
+
+------------------------------------------------------------------------

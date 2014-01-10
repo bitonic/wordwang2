@@ -15,7 +15,7 @@ executable wordwang-server
 
   other-modules:     WordWang.Config
                    , WordWang.Log
-                   , WordWang.Utils
+                   , WordWang.JSON
                    , WordWang.Messages
                    , WordWang.Objects
                    , WordWang.Bwd
