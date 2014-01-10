@@ -1,22 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
-import           Control.Applicative ((<|>))
-import           Control.Concurrent.MVar (newMVar)
+import           Control.Applicative                   ((<|>))
+import           Control.Concurrent.MVar               (newMVar)
+import           Control.Lens                          ((&), (.~))
+import qualified Data.HashMap.Strict                   as HashMap
+import           Data.Pool                             (Pool, createPool)
+import qualified Database.PostgreSQL.Simple            as PG
+import qualified Network.WebSockets.Snap               as WS
+import           Snap                                  (Snap)
+import qualified Snap                                  as Snap
+import qualified Snap.Util.FileServe                   as Snap
+import           System.FilePath                       ((</>))
 
-import qualified Data.HashMap.Strict as HashMap
-import           System.FilePath ((</>))
-
-import           Control.Lens ((&), (.~))
-import           Data.Pool (Pool, createPool, withResource)
-import qualified Database.PostgreSQL.Simple as PG
-import qualified Network.WebSockets.Snap as WS
-import           Snap (Snap)
-import qualified Snap as Snap
-import qualified Snap.Util.FileServe as Snap
-
-import           WordWang
-import           WordWang.Config
-import qualified WordWang.PostgreSQL as WWPG
 import           Paths_wordwang (getDataDir)
+import           WordWang
 
 run :: RootEnv -> FilePath -> Snap ()
 run rootEnv dataDir =
@@ -44,8 +40,7 @@ main = do
                          }
 
     -- Load existing stories
-    mapM_ (\(roomId, room) -> restoreRoom roomId room rootEnv) =<<
-      withResource pgPool WWPG.loadRooms
+    loadAndRestoreRooms rootEnv
 
     -- Run the server
     dataDir <- getDataDir

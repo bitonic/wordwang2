@@ -1,4 +1,4 @@
-module WordWang.Utils
+module WordWang.Concurrent
     ( supervise
     ) where
 

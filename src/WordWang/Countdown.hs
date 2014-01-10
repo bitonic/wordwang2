@@ -11,7 +11,7 @@ import           Control.Concurrent.MVar               (MVar, newMVar, newEmptyM
 import           Control.Monad                         (void)
 import           Data.List.NonEmpty                    (NonEmpty(..))
 
-import           WordWang.Utils
+import           WordWang.Concurrent
 
 data ShouldContinue
     = Yes !(NonEmpty Int)

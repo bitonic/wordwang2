@@ -2,6 +2,7 @@ module WordWang
     ( module WordWang.Messages
     , module WordWang.Monad
     , module WordWang.Objects
+    , module WordWang.Config
 
     , RoomEnv(..)
     , roomEnvRoom
@@ -13,6 +14,7 @@ module WordWang
     , rootEnvRooms
     , rootEnvPGPool
     , restoreRoom
+    , loadAndRestoreRooms
     , addRoom
     , webSocketWW
     , wordwang
@@ -46,6 +48,8 @@ import           Snap                                 (Snap)
 import qualified Snap                                 as Snap
 import           System.Random                        (randomIO)
 
+import           WordWang.Concurrent
+import           WordWang.Config
 import           WordWang.Countdown                   (Countdown)
 import qualified WordWang.Countdown                   as WWCD
 import           WordWang.JSON
@@ -54,7 +58,6 @@ import           WordWang.Messages
 import           WordWang.Monad
 import           WordWang.Objects
 import qualified WordWang.PostgreSQL                  as WWPG
-import           WordWang.Utils
 
 ------------------------------------------------------------------------
 -- Tagged connections
@@ -114,6 +117,11 @@ authenticated = do
             return userId
           _ ->
             terminate InvalidCredentials
+
+loadAndRestoreRooms :: RootEnv -> IO ()
+loadAndRestoreRooms rootEnv =
+    mapM_ (\(roomId, room) -> restoreRoom roomId room rootEnv) =<<
+      withResource (rootEnv ^. rootEnvPGPool) WWPG.loadRooms
 
 restoreRoom :: RoomId -> Room -> RootEnv -> IO ()
 restoreRoom roomId room rootEnv =
