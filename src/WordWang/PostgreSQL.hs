@@ -1,6 +1,9 @@
 -- TODO match type when querying after an id
 module WordWang.PostgreSQL
-    ( patch
+    ( Relation(..)
+    , Object(..)
+
+    , patch
     , lookup
     , exists
 
@@ -16,6 +19,7 @@ import           Control.Monad                         (void, forM, forM_, unles
 import           Control.Monad.Trans                   (lift)
 import           Control.Monad.Trans.Maybe             (MaybeT(MaybeT), runMaybeT)
 import           Data.Functor                          ((<$>), (<$))
+import qualified Data.HashSet                          as HashSet
 import           Data.List                             (intersperse)
 import           Data.Monoid                           ((<>), mconcat)
 import           Database.PostgreSQL.Simple            ((:.)(..))
@@ -27,9 +31,40 @@ import           System.Random                         (randomIO)
 
 import           WordWang.JSON
 import           WordWang.Objects
-import           WordWang.Storage
 
 #include "../impossible.h"
+
+----------------------------------------------------------------------
+
+data Relation = forall r. PG.ToRow r => Relation
+    { relTableName :: PG.Query
+    , relObjIdCol  :: PG.Query
+    , relRows      :: [r]
+    }
+
+class Patchable obj => Object obj where
+    objTag       :: obj -> String
+    objRelations :: obj -> [Relation]
+
+instance Object Story where
+    objTag _     = "story"
+    objRelations _ = []
+
+instance Object Room where
+    objTag _ = "room"
+
+    objRelations room =
+        [ Relation "room_story" "room_id"
+            [PG.Only (room ^. rStoryId)]
+        , Relation "room_users" "room_id"
+            (map PG.Only (HashSet.toList (room ^. rUsers)))
+        ]
+
+instance Object User where
+    objTag _ = "user"
+    objRelations _ = []
+
+----------------------------------------------------------------------
 
 relations :: (Object obj) => PG.Connection -> Id -> obj -> IO ()
 relations conn objId obj = do

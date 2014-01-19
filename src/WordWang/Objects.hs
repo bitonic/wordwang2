@@ -36,28 +36,41 @@ module WordWang.Objects
     , Patchable(..)
     , Patch(..)
     , applyPatches
+
+      -- * Versioned objects
+    , Revision
+    , Versioned(..)
+    , vRev
+    , vObj
+    , applyPatchesVersioned
     ) where
 
 import           Control.Lens                          (makeLenses, at, (.~), (?~), (%~), (^.), (&))
+import           Control.Monad                         (when)
 import           Control.Monad.Trans                   (lift)
 import           Control.Monad.Trans.Maybe             (MaybeT(MaybeT))
-import           Data.Aeson                            ((.=))
+import           Data.Aeson                            ((.=), FromJSON, ToJSON)
 import qualified Data.Aeson                            as Aeson
 import qualified Data.Aeson.TH                         as Aeson
 import           Data.ByteString                       (ByteString)
+import           Data.Foldable                         (Foldable)
 import           Data.Functor                          ((<$>))
 import           Data.HashMap.Strict                   (HashMap)
 import qualified Data.HashMap.Strict                   as HashMap
 import           Data.HashSet                          (HashSet)
 import qualified Data.HashSet                          as HashSet
 import           Data.Hashable                         (Hashable)
+import           Data.Int                              (Int64)
 import           Data.Text                             (Text)
 import qualified Data.Text.Encoding                    as T
+import           Data.Traversable                      (Traversable)
 import           Data.Traversable                      (traverse)
 import           Data.Typeable                         (Typeable, Typeable1)
 import qualified Data.UUID                             as UUID
 import qualified Database.PostgreSQL.Simple.FromField  as PG
+import qualified Database.PostgreSQL.Simple.FromRow    as PG
 import qualified Database.PostgreSQL.Simple.ToField    as PG
+import qualified Database.PostgreSQL.Simple.ToRow      as PG
 import           System.Random                         (Random(..))
 
 import           WordWang.JSON
@@ -187,6 +200,37 @@ deriving instance Show (Patch User)
 
 ----------------------------------------------------------------------
 
+type Revision = Int64
+
+data Versioned obj = Versioned
+    { _vRev :: Revision
+    , _vObj :: obj
+    } deriving (Eq, Show, Typeable, Functor, Traversable, Foldable)
+
+makeLenses ''Versioned
+
+applyPatchesVersioned :: Patchable obj
+                      => [Versioned (Patch obj)] -> Versioned obj
+                      -> MaybeT (Either String) (Versioned obj)
+applyPatchesVersioned [] verObj = do
+    return $ verObj
+applyPatchesVersioned (verPatch : verPatches) verObj = do
+    when (verPatch^.vRev /= verObj^.vRev) $ MaybeT $ return Nothing
+    obj' <- applyPatch (verPatch^.vObj) (verObj^.vObj)
+    applyPatchesVersioned verPatches $ Versioned (verObj^.vRev + 1) obj'
+
+----------------------------------------------------------------------
+
+instance (FromJSON a, Typeable a) => PG.FromRow (Versioned a) where
+    fromRow = do
+        rev <- PG.field
+        obj <- unJSONed <$> PG.field
+        return $ Versioned rev obj
+
+instance (ToJSON a, Typeable a) => PG.ToRow (Versioned a) where
+    toRow (Versioned rev obj) = [PG.toField rev, PG.toField (JSONed obj)]
+
+Aeson.deriveJSON (wwJSON $ delPrefix "_v") ''Versioned
 
 ----------------------------------------------------------------------
 

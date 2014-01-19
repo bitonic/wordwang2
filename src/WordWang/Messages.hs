@@ -21,7 +21,6 @@ import qualified Data.Aeson                            as Aeson
 import qualified Data.Aeson.TH                         as Aeson
 
 import           WordWang.Objects
-import           WordWang.Storage
 import           WordWang.JSON
 
 ------------------------------------------------------------------------
