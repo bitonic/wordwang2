@@ -25,8 +25,6 @@ import qualified Data.Text.Lazy.Encoding               as TL
 import           Data.Typeable                         (Typeable)
 import qualified Database.PostgreSQL.Simple.FromField  as PG
 import qualified Database.PostgreSQL.Simple.ToField    as PG
-import qualified Database.PostgreSQL.Simple.TypeInfo.Macro  as PGTI
-import qualified Database.PostgreSQL.Simple.TypeInfo.Static as PGTI
 
 delPrefix :: String -> String -> String
 delPrefix prefix fieldName =
@@ -95,18 +93,12 @@ instance Aeson.ToJSON a => Buildable (JSONed a) where
     build = TL.fromLazyText . TL.decodeUtf8 . Aeson.encode . unJSONed
 
 instance Aeson.ToJSON a => PG.ToField (JSONed a) where
-    toField = PG.Escape . BL.toStrict . Aeson.encode . unJSONed
+    toField = PG.toField . BL.toStrict . Aeson.encode . unJSONed
 
-instance (Aeson.FromJSON a, Typeable a) => PG.FromField (JSONed a) where
-    fromField fld mbBs =
-        if PG.typeOid fld /= $(PGTI.inlineTypoid PGTI.json)
-        then PG.returnError PG.Incompatible fld ""
-        else case mbBs of
-          Nothing ->
-            PG.returnError PG.UnexpectedNull fld ""
-          -- TODO for some reson Aeson.decodeStrict doesn't work...
-          Just bs | Just x <- Aeson.decode (BL.fromStrict bs) ->
-            return $ JSONed x
-          Just bs ->
-            fail $ "WordWang.Utils PG.FromField JSONed a: " ++
-                   "couldn't decode JSON " ++ show bs
+instance (Aeson.FromJSON a) => PG.FromField (JSONed a) where
+    fromField fld mbBs = do
+        value <- PG.fromField fld mbBs
+        case Aeson.parseMaybe Aeson.parseJSON value of
+          Nothing -> fail $ "WordWang.Utils PG.FromField JSONed a: " ++
+                            "couldn't decode JSON " ++ show value
+          Just x  -> return $ JSONed x

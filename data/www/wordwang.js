@@ -77,7 +77,7 @@ function WWState(host, onopen) {
 WWState.prototype = {
     sock: null,
     roomId: null,
-    story: null,
+    verStory: null,
     userId: null,
     user: null,
     _onRespHandlers: {},

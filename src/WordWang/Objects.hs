@@ -19,6 +19,7 @@ module WordWang.Objects
 
       -- ** 'Story'
     , Block
+    , StoryId
     , Story(..)
     , sCandidates
     , sBlocks
@@ -27,41 +28,54 @@ module WordWang.Objects
       -- ** 'Room'
     , RoomId
     , Room(..)
-    , rStory
+    , rStoryId
     , rUsers
     , emptyRoom
 
       -- * Patching
-    , PatchStory(..)
+    , Patchable(..)
     , Patch(..)
-    , applyPatch
     , applyPatches
+
+      -- * Versioned objects
+    , Revision
+    , Versioned(..)
+    , vRev
+    , vObj
+    , applyPatchesVersioned
     ) where
 
-import           Control.Applicative                   ((<|>))
 import           Control.Lens                          (makeLenses, at, (.~), (?~), (%~), (^.), (&))
+import           Control.Monad                         (when)
 import           Control.Monad.Trans                   (lift)
 import           Control.Monad.Trans.Maybe             (MaybeT(MaybeT))
-import           Data.Aeson                            ((.=))
+import           Data.Aeson                            ((.=), FromJSON, ToJSON)
 import qualified Data.Aeson                            as Aeson
 import qualified Data.Aeson.TH                         as Aeson
 import           Data.ByteString                       (ByteString)
+import           Data.Foldable                         (Foldable)
 import           Data.Functor                          ((<$>))
 import           Data.HashMap.Strict                   (HashMap)
 import qualified Data.HashMap.Strict                   as HashMap
 import           Data.HashSet                          (HashSet)
 import qualified Data.HashSet                          as HashSet
 import           Data.Hashable                         (Hashable)
+import           Data.Int                              (Int64)
 import           Data.Text                             (Text)
 import qualified Data.Text.Encoding                    as T
+import           Data.Traversable                      (Traversable)
 import           Data.Traversable                      (traverse)
-import           Data.Typeable                         (Typeable)
+import           Data.Typeable                         (Typeable, Typeable1)
 import qualified Data.UUID                             as UUID
 import qualified Database.PostgreSQL.Simple.FromField  as PG
+import qualified Database.PostgreSQL.Simple.FromRow    as PG
 import qualified Database.PostgreSQL.Simple.ToField    as PG
+import qualified Database.PostgreSQL.Simple.ToRow      as PG
 import           System.Random                         (Random(..))
 
 import           WordWang.JSON
+
+#include "../impossible.h"
 
 newtype Id = Id {unId :: UUID.UUID}
     deriving (Eq, Typeable, PG.ToField, PG.FromField, Hashable, Random)
@@ -88,6 +102,7 @@ candidate uid block =
              }
 
 type Block = Text
+type StoryId = Id
 data Story = Story
     { _sBlocks     :: ![Block]
     , _sCandidates :: !(HashMap CandidateId Candidate)
@@ -100,14 +115,14 @@ emptyStory = Story{ _sBlocks     = []
 
 type RoomId = Id
 data Room = Room
-    { _rStory :: Story
-    , _rUsers :: !(HashMap UserId User)
+    { _rStoryId :: StoryId
+    , _rUsers   :: !(HashSet UserId)
     } deriving (Eq, Show, Typeable)
 
-emptyRoom :: Room
-emptyRoom = Room{ _rStory = emptyStory
-                , _rUsers = HashMap.empty
-                }
+emptyRoom :: StoryId -> Room
+emptyRoom storyId = Room{ _rStoryId = storyId
+                        , _rUsers   = HashSet.empty
+                        }
 
 ----------------------------------------------------------------------
 
@@ -118,49 +133,111 @@ makeLenses ''Room
 
 ----------------------------------------------------------------------
 
-data PatchStory
-    = PSVotingClosed !Block
-    | PSCandidate !CandidateId !Candidate
-    | PSVote !CandidateId !UserId
-    deriving (Eq, Show, Typeable)
+class
+  ( Aeson.FromJSON obj
+  , Aeson.ToJSON obj
+  , Aeson.FromJSON (Patch obj)
+  , Aeson.ToJSON (Patch obj)
+  , Typeable obj
+  ) => Patchable obj
+  where
+    data Patch obj :: *
+    objTag     :: obj -> String
+    applyPatch :: Patch obj -> obj -> MaybeT (Either String) obj
 
-data Patch
-    = PStory !PatchStory
-    | PNewUser !UserId !User
-    deriving (Eq, Show, Typeable)
+deriving instance Typeable1 Patch
 
-applyPatch :: Patch -> Room -> MaybeT (Either String) Room
-applyPatch (PStory patchStory) root = do
-    story <- applyPatchStory patchStory (root ^. rStory)
-    return $ root & rStory .~ story
-applyPatch (PNewUser userId user) root = do
-    -- TODO should we check that the user doesn't exist?
-    return $ root & rUsers . at userId ?~ user
+applyPatches :: Patchable obj => [Patch obj] -> obj -> MaybeT (Either String) obj
+applyPatches []                obj = return obj
+applyPatches (patch : patches) obj = applyPatches patches =<< applyPatch patch obj
 
-applyPatches :: [Patch] -> Room -> MaybeT (Either String) Room
-applyPatches []                room = return room
-applyPatches (patch : patches) room = applyPatches patches =<< applyPatch patch room
+instance Patchable Room where
+    data Patch Room
+        = PRNewUser !UserId
+
+    applyPatch (PRNewUser userId) root = do
+        -- TODO should we check that the user doesn't exist?
+        return $ root & rUsers %~ HashSet.insert userId
+
+    objTag _ = "room"
+
+deriving instance Eq (Patch Room)
+deriving instance Show (Patch Room)
+
+instance Patchable Story where
+    data Patch Story
+        = PSVotingClosed !Block
+        | PSCandidate !CandidateId !Candidate
+        | PSVote !CandidateId !UserId
+
+    applyPatch (PSVotingClosed block) story = do
+        return $ story & (sCandidates .~ HashMap.empty) . (sBlocks %~ (++ [block]))
+    applyPatch (PSCandidate candId cand) story = do
+        case story ^. sCandidates ^. at candId of
+          Just _  -> nothing -- The user has already proposed a candidate.
+          Nothing -> return $ story & sCandidates . at candId ?~ cand
+    applyPatch (PSVote candId userId) story = do
+        case story ^. sCandidates ^. at candId of
+          Nothing -> do
+            lift $ Left $ "candidate " ++ show candId ++ " not present"
+          Just cand | HashSet.member userId (cand ^. cVotes) -> do
+            -- The user has already voted
+            nothing
+          Just cand -> do
+            let cand' = cand & cVotes %~ HashSet.insert userId
+            return $ story & sCandidates . at candId ?~ cand'
+
+    objTag _ = "story"
+
+deriving instance Eq (Patch Story)
+deriving instance Show (Patch Story)
 
 nothing :: Monad m => MaybeT m a
 nothing = MaybeT $ return Nothing
 
-applyPatchStory :: PatchStory -> Story -> MaybeT (Either String) Story
-applyPatchStory (PSVotingClosed block) story = do
-    return $ story & (sCandidates .~ HashMap.empty) . (sBlocks %~ (++ [block]))
-applyPatchStory (PSCandidate candId cand) story = do
-    case story ^. sCandidates ^. at candId of
-      Just _  -> nothing -- The user has already proposed a candidate.
-      Nothing -> return $ story & sCandidates . at candId ?~ cand
-applyPatchStory (PSVote candId userId) story = do
-    case story ^. sCandidates ^. at candId of
-      Nothing -> do
-        lift $ Left $ "candidate " ++ show candId ++ " not present"
-      Just cand | HashSet.member userId (cand ^. cVotes) -> do
-        -- The user has already voted
-        nothing
-      Just cand -> do
-        let cand' = cand & cVotes %~ HashSet.insert userId
-        return $ story & sCandidates . at candId ?~ cand'
+instance Patchable User where
+    data Patch User
+
+    objTag _ = "user"
+
+    applyPatch _ _user = IMPOSSIBLE
+
+deriving instance Eq (Patch User)
+deriving instance Show (Patch User)
+
+----------------------------------------------------------------------
+
+type Revision = Int64
+
+data Versioned obj = Versioned
+    { _vRev :: Revision
+    , _vObj :: obj
+    } deriving (Eq, Show, Typeable, Functor, Traversable, Foldable)
+
+makeLenses ''Versioned
+
+applyPatchesVersioned :: Patchable obj
+                      => [Versioned (Patch obj)] -> Versioned obj
+                      -> MaybeT (Either String) (Versioned obj)
+applyPatchesVersioned [] verObj = do
+    return $ verObj
+applyPatchesVersioned (verPatch : verPatches) verObj = do
+    when (verPatch^.vRev /= verObj^.vRev) $ MaybeT $ return Nothing
+    obj' <- applyPatch (verPatch^.vObj) (verObj^.vObj)
+    applyPatchesVersioned verPatches $ Versioned (verObj^.vRev + 1) obj'
+
+----------------------------------------------------------------------
+
+instance (FromJSON a, Typeable a) => PG.FromRow (Versioned a) where
+    fromRow = do
+        rev <- PG.field
+        obj <- unJSONed <$> PG.field
+        return $ Versioned rev obj
+
+instance (ToJSON a, Typeable a) => PG.ToRow (Versioned a) where
+    toRow (Versioned rev obj) = [PG.toField rev, PG.toField (JSONed obj)]
+
+Aeson.deriveJSON (wwJSON $ delPrefix "_v") ''Versioned
 
 ----------------------------------------------------------------------
 
@@ -196,18 +273,15 @@ Aeson.deriveJSON (wwJSON $ delPrefix "_c") ''Candidate
 Aeson.deriveJSON (wwJSON $ delPrefix "_s") ''Story
 Aeson.deriveJSON (wwJSON $ delPrefix "_r") ''Room
 
-instance Aeson.ToJSON Patch where
-    toJSON (PStory patchStory) =
-        Aeson.toJSON patchStory
-    toJSON (PNewUser userId user) =
-        tagJSON ("newUser", ["userId" .= userId, "user" .= user])
+instance Aeson.ToJSON (Patch Room) where
+    toJSON (PRNewUser userId) =
+        tagJSON ("newUser", ["userId" .= userId])
 
-instance Aeson.FromJSON Patch where
+instance Aeson.FromJSON (Patch Room) where
     parseJSON val =
-        (PStory <$> Aeson.parseJSON val) <|>
-        parseTagged [("newUser", parseBinary PNewUser "userId" "user")] val
+        parseTagged [("newUser", parseUnary PRNewUser "userId")] val
 
-instance Aeson.ToJSON PatchStory where
+instance Aeson.ToJSON (Patch Story) where
     toJSON = toTaggedJSON $ \case
         PSVotingClosed block ->
           ("votingClosed", ["block" .= block])
@@ -216,11 +290,18 @@ instance Aeson.ToJSON PatchStory where
         PSVote candId userId ->
           ("vote",         ["candidateId" .= candId , "userId" .= userId])
 
-instance Aeson.FromJSON PatchStory where
+instance Aeson.FromJSON (Patch Story) where
     parseJSON = parseTagged
         [ ("votingClosed", parseUnary  PSVotingClosed  "block")
         , ("candidate",    parseBinary PSCandidate "candidateId" "candidate")
         , ("vote",         parseBinary PSVote "candidateId" "userId")
         ]
+
+
+instance Aeson.ToJSON (Patch User) where
+    toJSON _ = IMPOSSIBLE
+
+instance Aeson.FromJSON (Patch User) where
+    parseJSON _ = fail "Patch User has no members."
 
 ----------------------------------------------------------------------

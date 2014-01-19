@@ -43,6 +43,7 @@ executable wordwang-server
                    , snap                 >= 0.13
                    , snap-core            >= 0.9
                    , string-combinators   >= 0.6
+                   , tagged               >= 0.7
                    , text                 >= 0.11
                    , text-format          >= 0.3
                    , transformers         >= 0.3
@@ -52,10 +53,14 @@ executable wordwang-server
                    , websockets-snap      >= 0.8
 
   Extensions:        DeriveDataTypeable
+                   , BangPatterns
+                   , CPP
                    , DeriveFoldable
                    , DeriveFunctor
                    , DeriveTraversable
+                   , EmptyDataDecls
                    , ExistentialQuantification
+                   , FlexibleContexts
                    , FlexibleInstances
                    , LambdaCase
                    , MultiParamTypeClasses
@@ -64,8 +69,10 @@ executable wordwang-server
                    , QuasiQuotes
                    , RankNTypes
                    , ScopedTypeVariables
+                   , StandaloneDeriving
                    , TemplateHaskell
                    , TupleSections
+                   , TypeFamilies
                    , ViewPatterns
 
   ghc-options:       -threaded -Wall -rtsopts -with-rtsopts=-T -O2

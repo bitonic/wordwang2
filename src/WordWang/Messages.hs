@@ -46,8 +46,8 @@ data ReqBody
     deriving (Eq, Show, Typeable)
 
 data Resp
-    = RespPatch !Patch
-    | RespStory !Story
+    = RespPatch !(Versioned (Patch Story))
+    | RespStory !(Versioned Story)
     | RespJoin !UserId !User
     | RespError !RespError
     deriving (Eq, Show, Typeable)
@@ -64,8 +64,8 @@ data RespError
 ------------------------------------------------------------------------
 -- JSON instances
 
-Aeson.deriveJSON (wwJSON $ delPrefix "_req")      ''Req
-Aeson.deriveJSON (wwJSON $ delPrefix "_reqAuth")  ''ReqAuth
+Aeson.deriveJSON (wwJSON $ delPrefix "_req")     ''Req
+Aeson.deriveJSON (wwJSON $ delPrefix "_reqAuth") ''ReqAuth
 
 instance Aeson.ToJSON ReqBody where
     toJSON = toTaggedJSON $ \case

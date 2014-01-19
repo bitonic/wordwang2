@@ -1,11 +1,9 @@
 module WordWang
     ( -- * Room environment
       RoomEnv(..)
-    , roomEnvRoom
+    , roomEnvRoomId
     , roomEnvConnections
     , roomEnvPGPool
-    , roomEnvCountdown
-    , roomEnvCloser
 
       -- * Root environment
     , RootEnv(..)
@@ -17,9 +15,8 @@ module WordWang
 
       -- * Snap\/WS\/IO actions
     , webSocketWW
-    , restoreRoom
-    , addRoom
-    , loadAndRestoreRooms
+    , snapWW
+    , createRoom
 
       -- * Re-exports
     , module WordWang.Config
@@ -28,38 +25,33 @@ module WordWang
     , module WordWang.Monad
     ) where
 
-import           Control.Concurrent                   (ThreadId, threadDelay)
-import           Control.Concurrent.MVar              (MVar, modifyMVar_, readMVar, newEmptyMVar, putMVar)
+import           Control.Concurrent.MVar              (MVar, modifyMVar, modifyMVar_, readMVar, newMVar)
 import           Control.Exception                    (catches, Handler(Handler))
 import           Control.Lens                         (makeLenses, view, use, (^.), at, (.=), (%=))
-import           Control.Monad                        (filterM, unless, when, forever, void)
-import           Control.Monad.Reader                 (ReaderT(runReaderT))
-import           Control.Monad.State                  (execStateT, StateT)
-import           Control.Monad.Trans                  (MonadIO(liftIO))
-import           Crypto.Random                        (genBytes, newGenIO)
-import           Crypto.Random.DRBG                   (HashDRBG)
+import           Control.Monad                        (filterM, unless, void)
+import           Control.Monad.Reader                 (ReaderT, runReaderT)
+import           Control.Monad.State                  (execStateT, runStateT, StateT)
+import           Control.Monad.Trans                  (MonadIO, liftIO)
 import qualified Data.Aeson                           as Aeson
-import qualified Data.ByteString.Base64.URL           as Base64.URL
 import           Data.Foldable                        (forM_, toList)
 import           Data.Functor                         ((<$>), (<$))
 import           Data.HashMap.Strict                  (HashMap)
 import qualified Data.HashMap.Strict                  as HashMap
 import qualified Data.HashSet                         as HashSet
-import           Data.IORef                           (newIORef, atomicModifyIORef')
+import           Data.IORef                           (newIORef, atomicModifyIORef', readIORef)
 import           Data.Int                             (Int64)
 import           Data.List                            (maximumBy)
 import           Data.Ord                             (comparing)
 import           Data.Pool                            (Pool, withResource)
+import qualified Data.Text                            as T
 import qualified Database.PostgreSQL.Simple           as PG
 import qualified Network.WebSockets                   as WS
 import           Snap                                 (Snap)
 import qualified Snap                                 as Snap
-import           System.Random                        (randomIO)
 
-import           WordWang.Concurrent
+import           WordWang.Bwd                         (Bwd((:<)))
+import qualified WordWang.Bwd                         as Bwd
 import           WordWang.Config
-import           WordWang.Countdown                   (Countdown)
-import qualified WordWang.Countdown                   as WWCD
 import           WordWang.JSON
 import           WordWang.Log
 import           WordWang.Messages
@@ -82,15 +74,18 @@ sendJSON taggedConn req = liftIO $ do
     debugMsg "[{}] sending response `{}'" (taggedConn ^. tcTag, JSONed req)
     WS.sendTextData (taggedConn ^. tcConn) (Aeson.encode req)
 
+writeJSON :: (Aeson.ToJSON a) => a -> Snap ()
+writeJSON req = do
+    debugMsg "[{}] sending response `{}'" ("SNAP" :: T.Text, JSONed req)
+    Snap.writeLBS $ Aeson.encode req
+
 ------------------------------------------------------------------------
 -- Room environment
 
 data RoomEnv = RoomEnv
-    { _roomEnvRoom        :: !Room
+    { _roomEnvRoomId      :: !RoomId
     , _roomEnvConnections :: ![TaggedConn]
     , _roomEnvPGPool      :: !(Pool PG.Connection)
-    , _roomEnvCountdown   :: !(Maybe Countdown)
-    , _roomEnvCloser      :: !ThreadId
     }
 
 data RootEnv = RootEnv
@@ -104,16 +99,6 @@ makeLenses ''RootEnv
 ------------------------------------------------------------------------
 -- WW actions
 
-internalError :: MonadWW m => String -> m a
-internalError = terminate . InternalError
-
-makeSecret :: (MonadIO m, MonadWW m) => m UserSecret
-makeSecret = do
-    gen <- liftIO (newGenIO :: IO HashDRBG)
-    case genBytes 15 gen of
-      Left err      -> internalError $ show err
-      Right (bs, _) -> return $ Base64.URL.encode bs
-
 authenticated :: ReaderT Req WW UserId
 authenticated = do
     mbAuth <- view reqAuth
@@ -121,9 +106,9 @@ authenticated = do
       Nothing -> do
         terminate NoCredentials
       Just auth -> do
-        users <- viewRoom rUsers
         let userId = auth ^. reqAuthUserId
-        case users ^. at userId of
+        mbUser <- lookupUser userId
+        case mbUser of
           Just user | auth ^. reqAuthSecret == user ^. uSecret ->
             return userId
           _ ->
@@ -131,7 +116,7 @@ authenticated = do
 
 closeVoting :: MonadWW m => m ()
 closeVoting = do
-    story <- viewRoom rStory
+    story <- viewStory vObj
     case HashMap.elems (story ^. sCandidates) of
       [] -> do
         -- TODO should we return an error here?
@@ -139,7 +124,7 @@ closeVoting = do
       cands@(_:_) -> do
         let cand  = maximumBy (comparing (HashSet.size . _cVotes)) cands
             block = cand ^. cBlock
-        patchStoryAndRespond $ PSVotingClosed block
+        void $ patchStory [PSVotingClosed block]
 
 -- | Main logic.
 wordwang :: ReaderT Req WW ()
@@ -148,77 +133,48 @@ wordwang = do
     case body of
       ReqCandidate block -> do
         userId <- authenticated
-        patchStoryAndRespond $ PSCandidate userId $ candidate userId block
+        void $ patchStory [PSCandidate userId $ candidate userId block]
       -- TODO make it so that only "administrators" can do this.
       ReqCloseVoting -> do
-        error "WordWang.wordwang: ReqCloseVoting not supported"
+        closeVoting
       ReqVote candidateId -> do
         userId <- authenticated
-        patchStoryAndRespond $ PSVote candidateId userId
+        void $ patchStory [PSVote candidateId userId]
       ReqStory -> do
-        story <- viewRoom rStory
+        story <- viewStory id
         respond This $ RespStory story
       ReqJoin -> do
-        userId <- liftIO randomIO
-        user   <- User <$> makeSecret
-        -- TODO should we record an error if the patch fails?
-        wasPatched <- patchRoom $ PNewUser userId user
-        when wasPatched $ respond This $ RespJoin userId user
+        (userId, user) <- createUser
+        respond This $ RespJoin userId user
 
 ------------------------------------------------------------------------
 -- Room setup
 
-loadAndRestoreRooms :: RootEnv -> IO ()
-loadAndRestoreRooms rootEnv =
-    mapM_ (\(roomId, room) -> restoreRoom roomId room rootEnv) =<<
-      withResource (rootEnv ^. rootEnvPGPool) WWPG.loadRooms
+addRoomEnv :: RoomId -> RootEnv -> IO (MVar (RoomEnv))
+addRoomEnv roomId rootEnv = modifyMVar (rootEnv ^. rootEnvRooms) $ \rooms ->
+    case rooms ^. at roomId of
+      Just roomEnvMv -> do
+        debugMsg "Room {} already present, not adding to RootEnv."
+          (Only (JSONed roomId))
+        return (rooms, roomEnvMv)
+      Nothing -> do
+        debugMsg "Adding room {} to RootEnv." (Only (JSONed roomId))
+        let roomEnv = RoomEnv
+              { _roomEnvRoomId      = roomId
+              , _roomEnvConnections = []
+              , _roomEnvPGPool      = rootEnv ^. rootEnvPGPool
+              }
+        roomEnvMv <- newMVar roomEnv
+        return (HashMap.insert roomId roomEnvMv rooms, roomEnvMv)
 
-restoreRoom :: RoomId -> Room -> RootEnv -> IO ()
-restoreRoom roomId room rootEnv =
-    modifyMVar_ (rootEnv ^. rootEnvRooms) $ \rooms -> do
-      roomEnvMv <- newEmptyMVar
+createRoom :: RootEnv -> Snap ()
+createRoom rootEnv = do
+    -- Add the room and story to the DB
+    roomId <- liftIO $ withResource (rootEnv ^. rootEnvPGPool) $ \conn ->
+      WWPG.createRoom conn
 
-      -- TODO kill this when closing the room.
-      closer <- supervise $ voteCloser roomEnvMv
-
-      putMVar roomEnvMv RoomEnv{ _roomEnvRoom        = room
-                               , _roomEnvConnections = []
-                               , _roomEnvPGPool      = rootEnv ^. rootEnvPGPool
-                               , _roomEnvCountdown   = Nothing
-                               , _roomEnvCloser      = closer
-                               }
-      return $ HashMap.insert roomId roomEnvMv rooms
-  where
-    voteCloser roomEnvMv = forever $ do
-        -- Wait for a tenth of a second.
-        threadDelay 100000
-        mbCountDown <- _roomEnvCountdown <$> readMVar roomEnvMv
-        case mbCountDown of
-          Nothing -> do
-            -- If the countdown is not there, don't do anything.
-            return ()
-          Just countdown -> do
-            -- Otherwise wait on it, and then elect a winning block.
-            debugMsg "[{}] Waiting on countdown." (Only (Shown roomId))
-            WWCD.wait countdown
-            debugMsg "[{}] Countdown expired, closing voting." (Only (Shown roomId))
-            let sendThisResp resp =
-                  error $ "WordWang.restoreRoom: " ++
-                          "trying to send This response " ++ show resp
-            -- Close the voting and remove the countdown
-            modifyMVar_ roomEnvMv $ \roomEnv -> flip execStateT roomEnv $ do
-              void $ executeWW rootEnv sendThisResp roomId $ closeVoting
-              roomEnvCountdown .= Nothing
-
-addRoom :: RootEnv -> Snap ()
-addRoom rootEnv = do
-    roomId <- liftIO randomIO
-    let room = emptyRoom
-    -- Add the room to the DB
-    liftIO $ withResource (rootEnv ^. rootEnvPGPool) $ \conn ->
-      WWPG.addRoom conn roomId room
     -- Add the room the the mvar
-    liftIO $ restoreRoom roomId room rootEnv
+    void $ liftIO $ addRoomEnv roomId rootEnv
 
     -- Send response
     Snap.modifyResponse $
@@ -228,29 +184,23 @@ addRoom rootEnv = do
 ------------------------------------------------------------------------
 -- Executing WW actions.
 
-executeWW :: RootEnv
-          -> (Resp -> IO ())
+executeWW :: (Resp -> IO ())
           -- ^ Actions that sends a response to the "current" client.
-          -> RoomId
           -> WW ()
-          -> StateT RoomEnv IO Bool
-executeWW rootEnv sendThisResp roomId m = do
+          -> StateT RoomEnv IO ()
+executeWW sendThisResp m = do
     -- Run the monadic action.
-    room <- use roomEnvRoom
-    result <- liftIO $ runWW room m
+    roomId <- use roomEnvRoomId
+    pgPool <- use roomEnvPGPool
+    result <- liftIO $ runWW roomId pgPool m
     case result of
       -- If the monadic action went wrong, just send a response with
       -- the error, without writing anything or modifying the state.
       Left err -> do
         liftIO $ sendThisResp $ RespError err
-        return False
 
       -- Otherwise...
       Right ((), wwst) -> do
-        -- Store the patches in the database.
-        liftIO $ withResource (rootEnv ^. rootEnvPGPool) $ \pgConn ->
-          WWPG.patchRoom pgConn roomId (toList $ wwst ^. wwPatches)
-
         -- Send the messages.
         forM_ (wwst ^. wwResps) $ \(recipient, resp) ->
           case recipient of
@@ -270,10 +220,48 @@ executeWW rootEnv sendThisResp roomId m = do
                   ]
               roomEnvConnections .= conns'
 
-        -- Store the new room in the state.
-        roomEnvRoom .= wwst ^. wwRoom
+        return ()
 
-        return $ wwst ^. wwHasStoryChanged
+lookupRoomEnv :: RoomId -> RootEnv -> IO (Maybe (MVar RoomEnv))
+lookupRoomEnv roomId rootEnv = do
+    rooms <- readMVar $ rootEnv ^. rootEnvRooms
+    case HashMap.lookup roomId rooms of
+      Just roomEnvMv -> do
+        return $ Just roomEnvMv
+      Nothing -> do
+        roomExists <- withResource (rootEnv ^. rootEnvPGPool) $ \pgConn ->
+          WWPG.exists pgConn roomId
+        if roomExists
+          then Just <$> addRoomEnv roomId rootEnv
+          else return Nothing
+
+snapWW :: RootEnv -> ReaderT Req WW () -> Snap ()
+snapWW rootEnv m = do
+    mbReq <- Aeson.eitherDecode <$> Snap.readRequestBody (1 * 1024 * 1024)
+    case mbReq of
+      Left err -> do
+        finishWithErr $ ErrorDecodingReq err
+      Right req -> do
+        debugMsg "[{}] received request `{}'" ("SNAP" :: T.Text, JSONed req)
+        let roomId = req ^. reqRoomId
+        mbRoomEnvMv <- liftIO $ lookupRoomEnv roomId rootEnv
+        case mbRoomEnvMv of
+          -- Send an error if the room is not present.
+          Nothing -> do
+            finishWithErr $ RoomNotPresent roomId
+
+          Just envMv -> do
+            resps <- liftIO $ modifyMVar envMv $ \env -> do
+              (resps, env') <- flip runStateT env $ do
+                respsRef <- liftIO $ newIORef Bwd.B0
+                let addResp resp = atomicModifyIORef' respsRef $ \resps ->
+                      ((resps :< resp), ())
+                executeWW addResp $ runReaderT m req
+                liftIO $ readIORef respsRef
+              return (env', resps)
+            writeJSON $ toList resps
+  where
+    finishWithErr = writeJSON . (:[]) . RespError
 
 webSocketWW :: RootEnv -> ReaderT Req WW () -> WS.ServerApp
 webSocketWW rootEnv m pending = do
@@ -311,25 +299,11 @@ webSocketWW rootEnv m pending = do
               unless isReg $ roomEnvConnections %= (tagConn :)
 
               -- Do what you're told
-              hasStoryChanged <-
-                executeWW rootEnv (sendJSON tagConn) roomId $ runReaderT m req
+              executeWW (sendJSON tagConn) $ runReaderT m req
 
-              -- Bump/start countdown if necessary
-              when hasStoryChanged $ do
-                mbCountDown <- use roomEnvCountdown
-                case mbCountDown of
-                  Nothing -> do
-                    countdown <- liftIO $ WWCD.start cdStart cdHalve
-                    roomEnvCountdown .= Just countdown
-                  Just countdown -> do
-                    liftIO $ WWCD.bump countdown
+              return ()
 
             -- Loop
             decodeReq tagConn True
-
-    -- Start with a 10 seconds wait
-    cdStart = 10000000
-    -- Each time a bump is received, add half of the last increment.
-    cdHalve n = if n < 100000 then Nothing else Just (n `div` 2)
 
     sendErr tagConn = sendJSON tagConn . RespError

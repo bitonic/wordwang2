@@ -17,7 +17,8 @@ import           WordWang
 run :: RootEnv -> FilePath -> Snap ()
 run rootEnv dataDir =
         Snap.path "ws" (WS.runWebSocketsSnap (webSocketWW rootEnv wordwang))
-    <|> Snap.path "create" (addRoom rootEnv)
+    <|> Snap.path "req" (snapWW rootEnv wordwang)
+    <|> Snap.path "create" (createRoom rootEnv)
     <|> Snap.serveDirectory (dataDir </> "www")
 
 createPGPool :: PG.ConnectInfo -> IO (Pool PG.Connection)
@@ -38,9 +39,6 @@ main = do
     let rootEnv = RootEnv{ _rootEnvRooms  = roomsMv
                          , _rootEnvPGPool = pgPool
                          }
-
-    -- Load existing stories
-    loadAndRestoreRooms rootEnv
 
     -- Run the server
     dataDir <- getDataDir
