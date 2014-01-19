@@ -100,7 +100,6 @@ lookup conn objId = runMaybeT $ do
               WHERE (obj_id = ?) AND (revision >= ?)
               ORDER BY revision ASC
       |] (objId, verObj ^. vRev)
-    debugMsg "{}" (Only (JSONed verPatches))
 
     case runMaybeT (applyPatchesVersioned verPatches verObj) of
       Left err ->
