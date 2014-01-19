@@ -45,6 +45,7 @@ import           WordWang.Bwd                          (Bwd(..))
 import qualified WordWang.Bwd                          as Bwd
 import           WordWang.Messages
 import           WordWang.Objects
+import           WordWang.Storage
 import qualified WordWang.PostgreSQL                   as WWPG
 
 #include "../impossible.h"
@@ -89,7 +90,7 @@ withPG m = do
     liftIO $ withResource pgPool $ \pgConn ->
       PG.withTransaction pgConn (m pgConn)
 
-patchObj :: WWPG.Object obj => Id -> [Patch obj] -> WW [Versioned (Patch obj)]
+patchObj :: Object obj => Id -> [Patch obj] -> WW [Versioned (Patch obj)]
 patchObj objId patches = do
     mbVerPatches <- withPG $ \pgConn -> WWPG.patch pgConn objId patches
     case mbVerPatches of
@@ -98,7 +99,7 @@ patchObj objId patches = do
       Just verPatches -> do
         return verPatches
 
-lookupObj :: WWPG.Object obj => Id -> WW (Versioned obj)
+lookupObj :: Object obj => Id -> WW (Versioned obj)
 lookupObj objId = do
     mbObj <- withPG $ \pgConn -> WWPG.lookup pgConn objId
     case mbObj of

@@ -18,6 +18,7 @@ executable wordwang-server
                    , WordWang.JSON
                    , WordWang.Messages
                    , WordWang.Objects
+                   , WordWang.Storage
                    , WordWang.Bwd
                    , WordWang.Monad
                    , WordWang.PostgreSQL

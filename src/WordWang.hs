@@ -57,6 +57,7 @@ import           WordWang.Log
 import           WordWang.Messages
 import           WordWang.Monad
 import           WordWang.Objects
+import           WordWang.Storage
 import qualified WordWang.PostgreSQL                  as WWPG
 
 ------------------------------------------------------------------------
