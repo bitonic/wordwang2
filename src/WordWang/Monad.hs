@@ -83,11 +83,15 @@ runWW roomId pgPool m = do
                           }
         runEitherT $ flip runStateT wwst $ unWW m
 
+withPG :: (PG.Connection -> IO b) -> WW b
+withPG m = do
+    pgPool <- WW $ use wwPGPool
+    liftIO $ withResource pgPool $ \pgConn ->
+      PG.withTransaction pgConn (m pgConn)
+
 patchObj :: WWPG.Object obj => Id -> [Patch obj] -> WW [Versioned (Patch obj)]
 patchObj objId patches = do
-    pgPool <- WW $ use wwPGPool
-    mbVerPatches <- liftIO $ withResource pgPool $ \pgConn ->
-      WWPG.patch pgConn objId patches
+    mbVerPatches <- withPG $ \pgConn -> WWPG.patch pgConn objId patches
     case mbVerPatches of
       Nothing -> do
         error $ "WordWang.Monad.patchObj: could not find object " ++ show objId
@@ -96,9 +100,7 @@ patchObj objId patches = do
 
 lookupObj :: WWPG.Object obj => Id -> WW (Versioned obj)
 lookupObj objId = do
-    pgPool <- WW $ use wwPGPool
-    mbObj <- liftIO $ liftIO $ withResource pgPool $ \pgConn ->
-      WWPG.lookup pgConn objId
+    mbObj <- withPG $ \pgConn -> WWPG.lookup pgConn objId
     case mbObj of
       Nothing -> do
         error $ "WordWang.Monad.lookupObj: could not find object " ++ show objId
@@ -144,9 +146,7 @@ createUser_ :: WW (UserId, User)
 createUser_ = do
     user <- User <$> makeSecret
     roomId <- WW $ use wwRoomId
-    pgPool <- WW $ use wwPGPool
-    mbUserId <- liftIO $ withResource pgPool $ \conn ->
-      WWPG.createUser conn user roomId
+    mbUserId <- withPG $ \conn -> WWPG.createUser conn user roomId
     case mbUserId of
       Nothing     -> ERROR("Non existant room: " ++ show roomId)
       Just userId -> return (userId, user)
@@ -160,8 +160,7 @@ createUser_ = do
 lookupUser_ :: UserId -> WW (Maybe User)
 lookupUser_ userId = do
     roomId <- WW $ use wwRoomId
-    pgPool <- WW $ use wwPGPool
-    liftIO $ withResource pgPool $ \conn -> WWPG.lookupUser conn userId roomId
+    withPG $ \conn -> WWPG.lookupUser conn userId roomId
 
 ------------------------------------------------------------------------
 
