@@ -32,13 +32,13 @@ CREATE TABLE snapshots
 
 ALTER TABLE snapshots OWNER TO wordwang;
 
-CREATE TABLE room_stories
+CREATE TABLE room_story
 ( room_id    uuid       NOT NULL REFERENCES objects(obj_id)
 , story_id   uuid       NOT NULL REFERENCES objects(obj_id)
 , PRIMARY KEY (room_id)
 );
 
-ALTER TABLE room_stories OWNER TO wordwang;
+ALTER TABLE room_story OWNER TO wordwang;
 
 CREATE TABLE room_users
 ( room_id    uuid       NOT NULL REFERENCES objects(obj_id)

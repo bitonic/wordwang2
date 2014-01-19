@@ -83,7 +83,7 @@ runWW roomId pgPool m = do
                           }
         runEitherT $ flip runStateT wwst $ unWW m
 
-patchObj :: Patchable obj => Id -> [Patch obj] -> WW [Versioned (Patch obj)]
+patchObj :: WWPG.Object obj => Id -> [Patch obj] -> WW [Versioned (Patch obj)]
 patchObj objId patches = do
     pgPool <- WW $ use wwPGPool
     mbVerPatches <- liftIO $ withResource pgPool $ \pgConn ->
@@ -94,7 +94,7 @@ patchObj objId patches = do
       Just verPatches -> do
         return verPatches
 
-lookupObj :: Patchable obj => Id -> WW (Versioned obj)
+lookupObj :: WWPG.Object obj => Id -> WW (Versioned obj)
 lookupObj objId = do
     pgPool <- WW $ use wwPGPool
     mbObj <- liftIO $ liftIO $ withResource pgPool $ \pgConn ->

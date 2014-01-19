@@ -142,7 +142,6 @@ class
   ) => Patchable obj
   where
     data Patch obj :: *
-    objTag     :: obj -> String
     applyPatch :: Patch obj -> obj -> MaybeT (Either String) obj
 
 deriving instance Typeable1 Patch
@@ -158,8 +157,6 @@ instance Patchable Room where
     applyPatch (PRNewUser userId) root = do
         -- TODO should we check that the user doesn't exist?
         return $ root & rUsers %~ HashSet.insert userId
-
-    objTag _ = "room"
 
 deriving instance Eq (Patch Room)
 deriving instance Show (Patch Room)
@@ -187,8 +184,6 @@ instance Patchable Story where
             let cand' = cand & cVotes %~ HashSet.insert userId
             return $ story & sCandidates . at candId ?~ cand'
 
-    objTag _ = "story"
-
 deriving instance Eq (Patch Story)
 deriving instance Show (Patch Story)
 
@@ -197,8 +192,6 @@ nothing = MaybeT $ return Nothing
 
 instance Patchable User where
     data Patch User
-
-    objTag _ = "user"
 
     applyPatch _ _user = IMPOSSIBLE
 

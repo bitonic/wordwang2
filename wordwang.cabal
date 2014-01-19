@@ -16,13 +16,11 @@ executable wordwang-server
   other-modules:     WordWang.Config
                    , WordWang.Log
                    , WordWang.JSON
-                   , WordWang.Concurrent
                    , WordWang.Messages
                    , WordWang.Objects
                    , WordWang.Bwd
                    , WordWang.Monad
                    , WordWang.PostgreSQL
-                   , WordWang.Countdown
                    , WordWang
 
   build-depends:     base                 >= 4 && < 5
